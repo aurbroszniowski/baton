@@ -1,0 +1,19 @@
+dependencies {
+    implementation project(':baton-api')
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
+}
+
+// Fat JAR so the agent can be SCP'd to remote hosts and run standalone
+jar {
+    archiveClassifier = 'fat'
+    manifest {
+        attributes 'Main-Class': 'io.baton.agent.AgentMain'
+    }
+    // .collect() inside the closure strips FileCollection task-dependency info,
+    // so we declare the dependency explicitly to ensure project JARs are built first.
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}

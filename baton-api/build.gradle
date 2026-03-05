@@ -1,0 +1,4 @@
+// Zero external dependencies — pure JDK only
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
+}

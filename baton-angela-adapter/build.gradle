@@ -1,0 +1,8 @@
+dependencies {
+    api project(':baton-api')
+    // Angela agent-lib: install first with:
+    //   cd /work/terracotta/github/angela && mvn install -DskipTests
+    compileOnly     'org.terracotta:angela-agent-lib:3.3.45-SNAPSHOT'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
+    testImplementation 'org.terracotta:angela-agent-lib:3.3.45-SNAPSHOT'
+}
