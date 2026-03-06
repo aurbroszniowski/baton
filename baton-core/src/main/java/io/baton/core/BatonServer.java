@@ -17,14 +17,22 @@ package io.baton.core;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.baton.DistributedQueue;
+import io.baton.DistributedReference;
 import io.baton.NodeId;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The orchestrator's HTTP server.
@@ -179,9 +187,47 @@ class BatonServer {
 
     // ── /primitive/reference/* ────────────────────────────────────────────────
 
+    @SuppressWarnings("unchecked")
     private void handleReference(HttpExchange ex) throws IOException {
-        // TODO Phase 2: serialize/deserialize reference values using base64 + Java serialization
-        sendStatus(ex, 501);
+        String path   = ex.getRequestURI().getPath();
+        String[] segs = path.split("/");
+        // segs: ["", "primitive", "reference", "{name}", "{op}"]
+        if (segs.length < 5) { sendStatus(ex, 400); return; }
+        String name = segs[3];
+        String op   = segs[4];
+
+        switch (op) {
+            case "get": {
+                DistributedReference<Serializable> ref =
+                        (DistributedReference<Serializable>) primitives.getOrCreateReference(name, (Serializable) null);
+                byte[] bytes = serializeObject(ref.get());
+                sendText(ex, 200, Base64.getEncoder().encodeToString(bytes));
+                break;
+            }
+            case "set": {
+                byte[] body = readBodyBytes(ex);
+                Serializable value = (Serializable) deserializeObject(body);
+                DistributedReference<Serializable> ref =
+                        (DistributedReference<Serializable>) primitives.getOrCreateReference(name, value);
+                ref.set(value);
+                sendText(ex, 200, "OK");
+                break;
+            }
+            case "cas": {
+                byte[] body = readBodyBytes(ex);
+                try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(body))) {
+                    Serializable expected = (Serializable) ois.readObject();
+                    Serializable update   = (Serializable) ois.readObject();
+                    DistributedReference<Serializable> ref =
+                            (DistributedReference<Serializable>) primitives.getOrCreateReference(name, (Serializable) null);
+                    sendText(ex, 200, Boolean.toString(ref.compareAndSet(expected, update)));
+                } catch (ClassNotFoundException e) {
+                    sendStatus(ex, 400);
+                }
+                break;
+            }
+            default: sendStatus(ex, 404);
+        }
     }
 
     // ── /barrier/* ────────────────────────────────────────────────────────────
@@ -211,12 +257,73 @@ class BatonServer {
 
     // ── /transfer/* ───────────────────────────────────────────────────────────
 
+    @SuppressWarnings("unchecked")
     private void handleTransfer(HttpExchange ex) throws IOException {
-        // TODO Phase 2: file push/pop using DistributedQueue<byte[]>
-        sendStatus(ex, 501);
+        String path   = ex.getRequestURI().getPath(); // /transfer/{queueId}/push|pop
+        String[] segs = path.split("/");
+        // segs: ["", "transfer", "{queueId}", "push|pop"]
+        if (segs.length < 4) { sendStatus(ex, 400); return; }
+        String queueId = segs[2];
+        String op      = segs[3];
+
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        DistributedQueue<byte[]> q = (DistributedQueue<byte[]>) (DistributedQueue) queues.getOrCreate(queueId);
+
+        switch (op) {
+            case "push": {
+                if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
+                try {
+                    q.put(readBodyBytes(ex));
+                    sendText(ex, 200, "OK");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    sendStatus(ex, 503);
+                }
+                break;
+            }
+            case "pop": {
+                long timeoutMs = queryLong(ex, "timeoutMs", 0L);
+                try {
+                    byte[] item = (timeoutMs > 0)
+                            ? q.poll(timeoutMs, TimeUnit.MILLISECONDS)
+                            : q.take();
+                    if (item == null) {
+                        sendStatus(ex, 204); // No Content — timeout, nothing to pop
+                    } else {
+                        ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
+                        ex.sendResponseHeaders(200, item.length);
+                        ex.getResponseBody().write(item);
+                        ex.close();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    sendStatus(ex, 503);
+                }
+                break;
+            }
+            default: sendStatus(ex, 404);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private byte[] serializeObject(Object obj) throws IOException {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        try (ObjectOutputStream oos = new ObjectOutputStream(buf)) {
+            oos.writeObject(obj);
+        }
+        return buf.toByteArray();
+    }
+
+    private Object deserializeObject(byte[] bytes) throws IOException {
+        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
+            try {
+                return ois.readObject();
+            } catch (ClassNotFoundException e) {
+                throw new IOException("Cannot deserialize object", e);
+            }
+        }
+    }
 
     private String readBody(HttpExchange ex) throws IOException {
         return new String(readBodyBytes(ex), StandardCharsets.UTF_8).trim();

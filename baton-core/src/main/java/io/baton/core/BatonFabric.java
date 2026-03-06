@@ -32,6 +32,8 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -59,20 +61,31 @@ public class BatonFabric implements Fabric {
         t.setDaemon(true);
         return t;
     });
+    /** Nodes created by {@link #connectLocal()} — only these run in the local thread pool. */
+    private final Set<NodeId>        localNodes  = ConcurrentHashMap.newKeySet();
 
-    private final BatonServer server; // null in unit-test / no-network mode
+    private final BatonServer server;  // null in unit-test / no-network mode
+    private final String      baseUrl; // null in local-only mode
 
     public BatonFabric(int orchestratorPort) {
         this.localNodeId = buildLocalNodeId();
-        BatonServer s = null;
+        BatonServer s   = null;
+        String      url = null;
         if (orchestratorPort >= 0) { // -1 = local-only mode, no HTTP server
             try {
-                s = new BatonServer(primitives, barriers, queues, registry, dispatcher, orchestratorPort);
+                s   = new BatonServer(primitives, barriers, queues, registry, dispatcher, orchestratorPort);
+                url = "http://localhost:" + s.getPort();
             } catch (IOException e) {
                 System.err.println("[baton] WARNING: could not start HTTP server — " + e.getMessage());
             }
         }
-        this.server = s;
+        this.server  = s;
+        this.baseUrl = url;
+    }
+
+    /** Returns the actual orchestrator port (useful when started with port 0), or -1 in local mode. */
+    public int getOrchestratorPort() {
+        return server != null ? server.getPort() : -1;
     }
 
     // ── Node lifecycle ─────────────────────────────────────────────────────────
@@ -88,8 +101,9 @@ public class BatonFabric implements Fabric {
 
     @Override
     public NodeId connectLocal() {
-        // Phase 1: spawn a local "node" in the same JVM (useful for unit tests)
+        // Spawn a local "node" in the same JVM (useful for unit tests)
         NodeId node = new NodeId("local-" + System.nanoTime(), localNodeId.getHostname(), 0, (int) ProcessHandle.current().pid());
+        localNodes.add(node); // track separately so remote agents aren't treated as local
         registry.register(node);
         return node;
     }
@@ -121,29 +135,47 @@ public class BatonFabric implements Fabric {
     }
 
     // ── Distributed primitives ─────────────────────────────────────────────────
+    //
+    // In local mode (baseUrl == null) return in-process implementations backed
+    // by PrimitivesStore / BarrierCoordinator / QueueStore.
+    //
+    // In HTTP mode (baseUrl != null) register the primitive in the orchestrator's
+    // in-memory store (so it is ready to serve HTTP requests), then return an
+    // HTTP proxy.  The proxy carries the orchestrator URL so that when it is
+    // captured in a lambda and shipped to a remote agent it still calls back to
+    // the right place.
 
     @Override
     public DistributedCounter counter(String name, long initialValue) {
+        primitives.getOrCreateCounter(name, initialValue); // ensure server-side entry exists
+        if (baseUrl != null) return new HttpCounterProxy(baseUrl, name);
         return primitives.getOrCreateCounter(name, initialValue);
     }
 
     @Override
     public DistributedBoolean bool(String name, boolean initialValue) {
+        primitives.getOrCreateBoolean(name, initialValue);
+        if (baseUrl != null) return new HttpBooleanProxy(baseUrl, name);
         return primitives.getOrCreateBoolean(name, initialValue);
     }
 
     @Override
     public <T extends Serializable> DistributedReference<T> reference(String name, T initialValue) {
+        primitives.getOrCreateReference(name, initialValue);
+        if (baseUrl != null) return new HttpReferenceProxy<>(baseUrl, name);
         return primitives.getOrCreateReference(name, initialValue);
     }
 
     @Override
     public DistributedBarrier barrier(String name, int parties) {
+        barriers.getOrCreate(name, parties); // ensure server-side barrier is registered
+        if (baseUrl != null) return new HttpBarrierProxy(baseUrl, name, parties);
         return barriers.getOrCreate(name, parties);
     }
 
     @Override
     public <T extends Serializable> DistributedQueue<T> queue(String name) {
+        if (baseUrl != null) return new HttpQueueProxy<>(baseUrl, name);
         return queues.getOrCreate(name);
     }
 
@@ -174,8 +206,10 @@ public class BatonFabric implements Fabric {
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private boolean isLocalNode(NodeId node) {
-        return registry.getConnectedNodes().contains(node)
-                || node.equals(localNodeId);
+        // Only nodes created via connectLocal() run in the local thread pool.
+        // Remote agents that registered via /agent/register must NOT be treated
+        // as local — they need HTTP dispatch.
+        return localNodes.contains(node) || node.equals(localNodeId);
     }
 
     private static NodeId buildLocalNodeId() {

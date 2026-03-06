@@ -20,6 +20,7 @@ import io.baton.DistributedCounter;
 import io.baton.DistributedReference;
 
 import java.io.Serializable;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -83,6 +84,15 @@ class PrimitivesStore {
         LocalReference(AtomicReference<Object> atom) { this.atom = atom; }
         @Override @SuppressWarnings("unchecked") public T get()        { return (T) atom.get(); }
         @Override public void    set(T v)                              { atom.set(v); }
-        @Override public boolean compareAndSet(T e, T u)               { return atom.compareAndSet(e, u); }
+        @Override public boolean compareAndSet(T e, T u) {
+            // Use equals semantics: AtomicReference.compareAndSet uses ==, which
+            // breaks for deserialized objects (e.g. values arriving via HTTP).
+            while (true) {
+                Object current = atom.get();
+                if (!Objects.equals(current, e)) return false;
+                if (atom.compareAndSet(current, u)) return true;
+                // current was equal to e but changed between get() and CAS — retry
+            }
+        }
     }
 }
