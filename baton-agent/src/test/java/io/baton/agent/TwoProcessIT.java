@@ -15,6 +15,7 @@
  */
 package io.baton.agent;
 
+import io.baton.DistributedCounter;
 import io.baton.NodeId;
 import io.baton.core.BatonFabric;
 import org.junit.jupiter.api.AfterEach;
@@ -22,15 +23,22 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.ServerSocket;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Phase 2 — two local processes communicating via HTTP.
+ * Phase 2 + Phase 3 — two local processes communicating via HTTP.
  *
  * <p>The orchestrator runs in this JVM; the agent runs in a child process
  * started with {@link ProcessBuilder} using the same classpath.  All
  * communication is over the real HTTP server.
+ *
+ * <p>Phase 2 tests verify registration and heartbeat.
+ * Phase 3 tests ship lambdas ({@link ClassBundle}) to the agent and assert
+ * the result comes back over the result-callback flow.
  */
 class TwoProcessIT {
 
@@ -81,7 +89,62 @@ class TwoProcessIT {
         assertTrue(stillConnected, "Agent should remain connected after heartbeat");
     }
 
+    // ── Phase 3 — remote lambda execution ─────────────────────────────────────
+
+    @Test
+    void remoteCallable_returnsValue() throws Exception {
+        NodeId agent = startAndAwaitAgent("rc-agent");
+
+        Future<Integer> f = fabric.executeAsync(agent, () -> 42);
+
+        assertEquals(42, f.get(10, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void remoteCallable_capturesString() throws Exception {
+        NodeId agent = startAndAwaitAgent("cap-agent");
+
+        String msg = "hello from agent";
+        @SuppressWarnings("unchecked")
+        Future<String> f = (Future<String>) (Future<?>) fabric.executeAsync(agent, () -> msg.toUpperCase());
+
+        assertEquals("HELLO FROM AGENT", f.get(10, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void remoteRunnable_mutatesHttpCounter() throws Exception {
+        // counter() in HTTP mode returns HttpCounterProxy — serializable, calls back to orchestrator
+        DistributedCounter counter = fabric.counter("remote-c", 0L);
+        NodeId agent = startAndAwaitAgent("mut-agent");
+
+        Future<Void> f = fabric.executeAsync(agent, () -> { counter.incrementAndGet(); });
+        f.get(10, TimeUnit.SECONDS);
+
+        assertEquals(1L, counter.get());
+    }
+
+    @Test
+    void remoteCallable_exceptionPropagatesAsExecutionException() throws Exception {
+        NodeId agent = startAndAwaitAgent("ex-agent");
+
+        Future<Void> f = fabric.executeAsync(agent, () -> {
+            throw new IllegalStateException("boom from agent");
+        });
+
+        assertThrows(ExecutionException.class, () -> f.get(10, TimeUnit.SECONDS));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Convenience: start an agent and block until it registers; fails the test on timeout. */
+    private NodeId startAndAwaitAgent(String name) throws Exception {
+        int orchestratorPort = fabric.getOrchestratorPort();
+        int agentPort        = freePort();
+        agentProcess = startAgent(orchestratorPort, agentPort, name);
+        NodeId node = awaitRegistration(name, 10_000);
+        assertNotNull(node, "Agent '" + name + "' did not register within 10 s");
+        return node;
+    }
 
     private Process startAgent(int orchestratorPort, int agentPort, String name) throws Exception {
         String javaCmd   = ProcessHandle.current().info().command()
