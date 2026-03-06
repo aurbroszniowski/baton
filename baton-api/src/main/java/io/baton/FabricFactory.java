@@ -37,7 +37,7 @@ public final class FabricFactory {
 
     /** Creates a {@link Fabric} whose orchestrator binds to a randomly selected free port. */
     public static Fabric create() {
-        return create(0);
+        return create(-1); // -1 = local-only, no HTTP server
     }
 
     /**

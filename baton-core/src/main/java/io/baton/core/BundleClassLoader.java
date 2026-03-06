@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.baton.agent;
+package io.baton.core;
 
 import java.util.Map;
 
@@ -24,11 +24,11 @@ import java.util.Map;
  * deserializing the lambda.  Classes not found here are delegated to the parent
  * (the agent's application classloader).
  */
-class BundleClassLoader extends ClassLoader {
+public class BundleClassLoader extends ClassLoader {
 
     private final Map<String, byte[]> classes;
 
-    BundleClassLoader(Map<String, byte[]> classes, ClassLoader parent) {
+    public BundleClassLoader(Map<String, byte[]> classes, ClassLoader parent) {
         super(parent);
         this.classes = classes;
     }

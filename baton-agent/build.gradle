@@ -1,5 +1,5 @@
 dependencies {
-    implementation project(':baton-api')
+    implementation project(':baton-core')
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
 }
 

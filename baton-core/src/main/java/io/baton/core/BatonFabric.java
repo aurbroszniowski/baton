@@ -65,10 +65,12 @@ public class BatonFabric implements Fabric {
     public BatonFabric(int orchestratorPort) {
         this.localNodeId = buildLocalNodeId();
         BatonServer s = null;
-        try {
-            s = new BatonServer(primitives, barriers, queues, registry, dispatcher, orchestratorPort);
-        } catch (IOException e) {
-            System.err.println("[baton] WARNING: could not start HTTP server — running in local-only mode. " + e.getMessage());
+        if (orchestratorPort >= 0) { // -1 = local-only mode, no HTTP server
+            try {
+                s = new BatonServer(primitives, barriers, queues, registry, dispatcher, orchestratorPort);
+            } catch (IOException e) {
+                System.err.println("[baton] WARNING: could not start HTTP server — " + e.getMessage());
+            }
         }
         this.server = s;
     }

@@ -16,6 +16,7 @@
 package io.baton.agent;
 
 import io.baton.ClassBundle;
+import io.baton.core.BundleClassLoader;
 import io.baton.RemoteCallable;
 import io.baton.RemoteRunnable;
 
