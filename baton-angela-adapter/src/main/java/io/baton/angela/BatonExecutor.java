@@ -38,15 +38,19 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
+import org.terracotta.angela.common.cluster.Cluster;
+
 /**
  * Bridges Angela's {@link Executor} SPI to Baton's {@link Fabric}.
  */
 class BatonExecutor implements Executor {
 
     private final Fabric fabric;
+    private final UUID   groupId;
 
-    BatonExecutor(Fabric fabric) {
-        this.fabric = fabric;
+    BatonExecutor(Fabric fabric, UUID groupId) {
+        this.fabric  = fabric;
+        this.groupId = groupId;
     }
 
     @Override
@@ -75,17 +79,17 @@ class BatonExecutor implements Executor {
 
     @Override
     public AgentGroup getGroup() {
-        throw new UnsupportedOperationException("AgentGroup not yet implemented");
+        return new BatonAgentGroup(groupId, getLocalAgentID(), fabric);
     }
 
     @Override
     public Cluster getCluster() {
-        throw new UnsupportedOperationException("Cluster not yet implemented");
+        return new Cluster(new BatonClusterPrimitives(fabric), getLocalAgentID(), null);
     }
 
     @Override
     public Cluster getCluster(ClientId clientId) {
-        throw new UnsupportedOperationException("Cluster not yet implemented");
+        return new Cluster(new BatonClusterPrimitives(fabric), getLocalAgentID(), clientId);
     }
 
     @Override

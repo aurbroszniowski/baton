@@ -54,7 +54,7 @@ public class BatonGridProvider implements GridProvider {
 
     @Override
     public Executor createExecutor(UUID group, AgentID agentID) {
-        return new BatonExecutor(fabric);
+        return new BatonExecutor(fabric, group);
     }
 
     @Override
