@@ -22,7 +22,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -94,8 +97,37 @@ class AgentServer {
     }
 
     private void handleFiles(HttpExchange ex) throws IOException {
-        // TODO Phase 5
-        sendStatus(ex, 501);
+        // Extract ?path=<encoded-remote-path> from query string
+        String query = ex.getRequestURI().getQuery();
+        String remotePath = null;
+        if (query != null) {
+            for (String param : query.split("&")) {
+                if (param.startsWith("path=")) {
+                    remotePath = URLDecoder.decode(param.substring(5), StandardCharsets.UTF_8.name());
+                    break;
+                }
+            }
+        }
+        if (remotePath == null) { sendStatus(ex, 400); return; }
+
+        // Expand leading ~ to the user's home directory
+        Path path = Path.of(remotePath.replaceFirst("^~", System.getProperty("user.home")));
+
+        String method = ex.getRequestMethod().toUpperCase();
+        if ("POST".equals(method)) {
+            if (path.getParent() != null) Files.createDirectories(path.getParent());
+            byte[] bytes = readBodyBytes(ex);
+            Files.write(path, bytes);
+            sendText(ex, 200, "ok");
+        } else if ("GET".equals(method)) {
+            byte[] bytes = Files.readAllBytes(path);
+            ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
+            ex.sendResponseHeaders(200, bytes.length);
+            ex.getResponseBody().write(bytes);
+            ex.close();
+        } else {
+            sendStatus(ex, 405);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
