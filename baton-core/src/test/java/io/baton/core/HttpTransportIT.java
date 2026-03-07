@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -207,5 +208,17 @@ class HttpTransportIT {
         fabric.barrier("bar-timeout", 2); // needs 2 parties
         HttpBarrierProxy b = new HttpBarrierProxy(baseUrl, "bar-timeout", 2);
         assertThrows(Exception.class, () -> b.await(150, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void httpBarrier_timeoutMessage_includesArrivedCount() {
+        // Phase 6: the TimeoutException should carry "X/Y arrived" detail
+        fabric.barrier("bar-detail", 2);
+        HttpBarrierProxy b = new HttpBarrierProxy(baseUrl, "bar-detail", 2);
+        TimeoutException ex = assertThrows(TimeoutException.class,
+                () -> b.await(200, TimeUnit.MILLISECONDS));
+        assertNotNull(ex.getMessage(), "TimeoutException must have a message");
+        assertTrue(ex.getMessage().contains("/2"),
+                "Expected 'X/2 arrived' in: " + ex.getMessage());
     }
 }

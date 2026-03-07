@@ -21,8 +21,14 @@ import io.baton.core.BatonFabric;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.ServerSocket;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -134,6 +140,48 @@ class TwoProcessIT {
         assertThrows(ExecutionException.class, () -> f.get(10, TimeUnit.SECONDS));
     }
 
+    // ── Phase 6 — agent cleanup on Fabric.close() ─────────────────────────────
+
+    @Test
+    void fabricClose_shutsDownConnectedAgent() throws Exception {
+        NodeId agent = startAndAwaitAgent("close-agent");
+        String healthUrl = "http://localhost:" + agent.getPort() + "/health";
+        assertTrue(isAgentReachable(healthUrl), "Agent should be up before close");
+
+        fabric.close(); // should send POST /shutdown to the agent
+
+        // Wait up to 5 s for the agent to stop responding
+        long deadline = System.currentTimeMillis() + 5_000;
+        boolean stopped = false;
+        while (System.currentTimeMillis() < deadline) {
+            if (!isAgentReachable(healthUrl)) { stopped = true; break; }
+            Thread.sleep(100);
+        }
+        assertTrue(stopped, "Agent should have shut down after Fabric.close()");
+    }
+
+    // ── Phase 5 — file upload / download ──────────────────────────────────────
+
+    @Test
+    void fileUpload_thenDownload_contentMatches(@TempDir Path tempDir) throws Exception {
+        NodeId agent = startAndAwaitAgent("file-agent");
+
+        // Create a local file to upload
+        Path localFile = tempDir.resolve("upload.txt");
+        byte[] content = "hello from phase 5".getBytes();
+        Files.write(localFile, content);
+
+        // Upload to a path under the agent's temp directory
+        String remotePath = tempDir.toAbsolutePath() + "/remote-copy.txt";
+        fabric.upload(agent, localFile, remotePath);
+
+        // Download it back to a different local path
+        Path downloaded = tempDir.resolve("downloaded.txt");
+        fabric.download(agent, remotePath, downloaded);
+
+        assertArrayEquals(content, Files.readAllBytes(downloaded));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** Convenience: start an agent and block until it registers; fails the test on timeout. */
@@ -172,6 +220,18 @@ class TwoProcessIT {
             Thread.sleep(100);
         }
         return null;
+    }
+
+    /** Returns true if the agent's /health endpoint responds with HTTP 200. */
+    private static boolean isAgentReachable(String healthUrl) {
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(healthUrl).openConnection();
+            conn.setConnectTimeout(500);
+            conn.setReadTimeout(500);
+            return conn.getResponseCode() == 200;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /** Allocates a free port by binding and immediately releasing a ServerSocket. */

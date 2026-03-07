@@ -28,6 +28,7 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,7 +45,14 @@ import java.util.concurrent.Future;
 class JobDispatcher {
 
     /** Pending futures keyed by jobId, resolved when the agent POSTs a result. */
-    private final ConcurrentHashMap<String, CompletableFuture<Object>> pending = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<Object>> pending  = new ConcurrentHashMap<>();
+    /** jobIds pending per node, used to fail all futures when an agent dies. */
+    private final ConcurrentHashMap<NodeId, Set<String>>               nodeJobs = new ConcurrentHashMap<>();
+
+    /** Correlation ID for log lines — set by {@link BatonFabric} after construction. */
+    private volatile String runId = "-";
+
+    void setRunId(String runId) { this.runId = runId; }
 
     Future<Void> dispatchRunnable(NodeId node, RemoteRunnable job) {
         return dispatch(node, job).thenApply(ignored -> null);
@@ -67,6 +75,10 @@ class JobDispatcher {
         CompletableFuture<Object> future = pending.remove(jobId);
         if (future == null) return; // already timed out or duplicate delivery
 
+        // Remove from per-node tracking (best-effort — we don't know which node here)
+        nodeJobs.values().forEach(jobs -> jobs.remove(jobId));
+
+        System.out.printf("[baton][%s][%s] Job completed (exception=%b)%n", runId, jobId, isException);
         try {
             Object result = deserialize(resultBytes);
             if (isException) {
@@ -79,8 +91,23 @@ class JobDispatcher {
         }
     }
 
-    /** Fail all pending jobs — used when the orchestrator shuts down or an agent dies. */
+    /** Fail all pending jobs for a specific node — called when an agent is declared dead. */
+    void failAgent(NodeId node, Throwable cause) {
+        Set<String> jobIds = nodeJobs.remove(node);
+        if (jobIds == null) return;
+        System.out.printf("[baton][%s][-] Failing %d pending job(s) for dead agent %s%n",
+                runId, jobIds.size(), node);
+        for (String jobId : jobIds) {
+            CompletableFuture<Object> future = pending.remove(jobId);
+            if (future != null) future.completeExceptionally(cause);
+        }
+    }
+
+    /** Fail all pending jobs — used when the orchestrator shuts down. */
     void failAll(Throwable cause) {
+        System.out.printf("[baton][%s][-] Failing all %d pending job(s): %s%n",
+                runId, pending.size(), cause.getMessage());
+        nodeJobs.clear();
         pending.values().forEach(f -> f.completeExceptionally(cause));
         pending.clear();
     }
@@ -91,7 +118,9 @@ class JobDispatcher {
         String jobId = UUID.randomUUID().toString();
         CompletableFuture<Object> future = new CompletableFuture<>();
         pending.put(jobId, future);
+        nodeJobs.computeIfAbsent(node, k -> ConcurrentHashMap.newKeySet()).add(jobId);
 
+        System.out.printf("[baton][%s][%s] Dispatching job to %s%n", runId, jobId, node);
         try {
             ClassBundle bundle = buildBundle(job);
             byte[] payload = serializePayload(jobId, bundle);
@@ -99,6 +128,7 @@ class JobDispatcher {
             postBinary(agentUrl, payload);
         } catch (Exception e) {
             pending.remove(jobId);
+            nodeJobs.getOrDefault(node, ConcurrentHashMap.newKeySet()).remove(jobId);
             future.completeExceptionally(e);
         }
 

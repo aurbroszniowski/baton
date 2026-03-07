@@ -91,7 +91,14 @@ public class HttpBarrierProxy implements DistributedBarrier {
             conn.getOutputStream().close();
 
             int code = conn.getResponseCode();
-            if (code == 408) throw new TimeoutException("Barrier await timed out: " + name);
+            if (code == 408) {
+                String detail = "";
+                try {
+                    java.io.InputStream err = conn.getErrorStream();
+                    if (err != null) detail = new String(err.readAllBytes(), StandardCharsets.UTF_8).trim();
+                } catch (IOException ignored) {}
+                throw new TimeoutException(detail.isEmpty() ? "Barrier await timed out: " + name : detail);
+            }
             if (code != 200) throw new IOException("HTTP " + code + " from barrier: " + name);
 
             String body = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

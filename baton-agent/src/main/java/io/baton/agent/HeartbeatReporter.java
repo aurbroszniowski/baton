@@ -36,15 +36,17 @@ class HeartbeatReporter {
 
     private final String    orchestratorUrl;
     private final NodeId    selfId;
+    private final String    agentRunId;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "baton-heartbeat-sender");
         t.setDaemon(true);
         return t;
     });
 
-    HeartbeatReporter(String orchestratorUrl, NodeId selfId) {
+    HeartbeatReporter(String orchestratorUrl, NodeId selfId, String agentRunId) {
         this.orchestratorUrl = orchestratorUrl;
         this.selfId          = selfId;
+        this.agentRunId      = agentRunId;
     }
 
     void start() {
@@ -60,7 +62,7 @@ class HeartbeatReporter {
             post(orchestratorUrl + "/agent/heartbeat",
                     nodeIdToString(selfId).getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
-            System.err.println("[baton-agent] Heartbeat failed: " + e.getMessage());
+            System.err.printf("[baton-agent][%s][-] Heartbeat failed: %s%n", agentRunId, e.getMessage());
         }
     }
 

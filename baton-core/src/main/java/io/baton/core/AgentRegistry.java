@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Tracks registered agents and detects dead ones via heartbeat timeouts.
@@ -45,11 +46,19 @@ class AgentRegistry {
         return t;
     });
 
+    /** Called when an agent is declared dead; wired from {@link BatonFabric}. */
+    private volatile Consumer<NodeId> deathListener = node -> {};
+    /** Correlation prefix for log lines; set by {@link BatonFabric}. */
+    private volatile String runId = "-";
+
     AgentRegistry() {
         monitor.scheduleAtFixedRate(
                 this::checkHeartbeats,
                 GRACE_PERIOD_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
     }
+
+    void setDeathListener(Consumer<NodeId> listener) { this.deathListener = listener; }
+    void setRunId(String runId)                      { this.runId = runId; }
 
     void register(NodeId nodeId) {
         agents.put(nodeId, new AgentEntry(nodeId));
@@ -82,8 +91,9 @@ class AgentRegistry {
         for (AgentEntry entry : agents.values()) {
             if (entry.alive && (now - entry.lastHeartbeatMs) > GRACE_PERIOD_MS) {
                 entry.alive = false;
-                // TODO Phase 6: fail all pending futures for this agent
-                System.err.println("[baton] Agent " + entry.nodeId + " missed heartbeat — marking dead");
+                System.err.printf("[baton][%s][-] Agent %s missed heartbeat — marking dead%n",
+                        runId, entry.nodeId);
+                deathListener.accept(entry.nodeId);
             }
         }
     }

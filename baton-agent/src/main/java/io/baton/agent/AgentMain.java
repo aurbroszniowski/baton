@@ -23,6 +23,7 @@ import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /**
  * Entry point for the baton agent fat-JAR.
@@ -48,15 +49,16 @@ public class AgentMain {
         String orchestratorUrl = requireArg(args, "--orchestrator");
         int    port            = Integer.parseInt(requireArg(args, "--port"));
         String name            = argOrDefault(args, "--name", "agent-" + port);
+        String agentRunId      = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 
         String hostname = InetAddress.getLocalHost().getHostName();
         int    pid      = (int) ProcessHandle.current().pid();
 
         NodeId selfId = new NodeId(name, hostname, port, pid);
 
-        System.out.println("[baton-agent] Starting " + selfId + " → orchestrator=" + orchestratorUrl);
+        System.out.printf("[baton-agent][%s][-] Starting %s → orchestrator=%s%n", agentRunId, selfId, orchestratorUrl);
 
-        JobRunner runner = new JobRunner(orchestratorUrl);
+        JobRunner runner = new JobRunner(orchestratorUrl, agentRunId);
 
         // Shutdown hook shared by AgentServer (HTTP /shutdown) and JVM shutdown
         Object shutdownLock = new Object();
@@ -70,17 +72,17 @@ public class AgentMain {
         register(orchestratorUrl, selfId);
 
         // Start heartbeat
-        HeartbeatReporter heartbeat = new HeartbeatReporter(orchestratorUrl, selfId);
+        HeartbeatReporter heartbeat = new HeartbeatReporter(orchestratorUrl, selfId, agentRunId);
         heartbeat.start();
 
-        System.out.println("[baton-agent] Ready on port " + agentServer.getPort());
+        System.out.printf("[baton-agent][%s][-] Ready on port %d%n", agentRunId, agentServer.getPort());
 
         // Block until shutdown
         synchronized (shutdownLock) {
             shutdownLock.wait();
         }
 
-        System.out.println("[baton-agent] Shutting down");
+        System.out.printf("[baton-agent][%s][-] Shutting down%n", agentRunId);
         heartbeat.stop();
         agentServer.stop();
     }

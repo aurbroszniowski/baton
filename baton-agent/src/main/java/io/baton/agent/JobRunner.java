@@ -39,14 +39,16 @@ import java.util.concurrent.Executors;
 class JobRunner {
 
     private final String orchestratorUrl;
+    private final String agentRunId;
     private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "baton-job-runner");
         t.setDaemon(true);
         return t;
     });
 
-    JobRunner(String orchestratorUrl) {
+    JobRunner(String orchestratorUrl, String agentRunId) {
         this.orchestratorUrl = orchestratorUrl;
+        this.agentRunId       = agentRunId;
     }
 
     /**
@@ -62,10 +64,13 @@ class JobRunner {
                 jobId = ois.readUTF();
                 ClassBundle bundle = (ClassBundle) ois.readObject();
 
+                System.out.printf("[baton-agent][%s][%s] Running job%n", agentRunId, jobId);
                 Object result = execute(bundle);
+                System.out.printf("[baton-agent][%s][%s] Job completed successfully%n", agentRunId, jobId);
                 postResult(jobId, serialize(result), false);
             } catch (Throwable t) {
                 if (jobId != null) {
+                    System.out.printf("[baton-agent][%s][%s] Job failed: %s%n", agentRunId, jobId, t.getMessage());
                     try { postResult(jobId, serialize(t), true); } catch (Exception ignored) {}
                 }
             }

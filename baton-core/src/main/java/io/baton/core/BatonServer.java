@@ -251,7 +251,7 @@ class BatonServer {
             Thread.currentThread().interrupt();
             sendText(ex, 503, "interrupted");
         } catch (java.util.concurrent.TimeoutException e) {
-            sendText(ex, 408, "timeout");
+            sendText(ex, 408, e.getMessage() != null ? e.getMessage() : "timeout");
         }
     }
 
