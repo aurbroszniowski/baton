@@ -1,42 +1,163 @@
-# Baton — A Custom Coordinator-Centric Grid Framework
+# Baton
 
-## Standalone-First Design
+**Baton** is a lightweight distributed coordination framework for Java. It lets multiple JVMs share state through distributed primitives and execute serialised lambdas on remote workers — with no Ignite, Hazelcast, or ZooKeeper dependency.
 
-Baton can be used in any Java project that needs to execute lambdas on remote JVMs and coordinate them with distributed primitives, in a lean way.
-
----
-
-## Current problematic
-
-Remote code execution from a JVM is usually achieved through a few well-known patterns. The most common is RPC-style invocation, where a JVM calls a remote service using technologies such as REST, gRPC, messaging systems, or historically Java RMI; the remote system executes code that is already deployed there. Another approach is the worker or job model, where tasks or JARs are submitted to remote JVM workers (for example in build agents, distributed job systems, or compute frameworks like Spark). Less commonly, systems rely on remote agents that receive commands and execute them locally, or on dynamic class loading or plugin mechanisms that allow remote bytecode to be fetched and executed. To coordinate multiple JVM instances running such tasks, distributed coordination systems are typically used, such as ZooKeeper, etcd, or Consul, or distributed data grids like Hazelcast or Infinispan. These provide primitives like barriers, leader election, distributed locks, and atomic counters, which allow several JVMs to synchronize their work across a cluster.
-
-However, these approaches introduce significant complexity. Distributed coordination primitives require network round trips and depend on consensus or strong consistency mechanisms, which adds latency and operational overhead. They also introduce difficult failure modes—timeouts, partial failures, split-brain situations, and retries—which make seemingly simple constructs like barriers or counters harder to reason about in a distributed environment. Running and maintaining coordination infrastructure, handling serialization compatibility, and ensuring proper security and observability further increase the cost of such systems.
-
-For these reasons, a lean implementation can often be preferable. Reducing the number of coordination primitives and relying instead on simpler patterns—such as message-driven work distribution, idempotent tasks, and minimal shared state—lowers operational burden and reduces failure scenarios. Lean designs tend to be easier to operate, scale more predictably, and remain easier to understand and evolve over time. By minimizing global coordination and focusing on simple communication patterns, systems can achieve higher robustness while avoiding much of the complexity inherent to traditional distributed coordination frameworks.
+It was built as a drop-in replacement for Apache Ignite inside the [Angela](https://github.com/Terracotta-OSS/angela) distributed test infrastructure.
 
 ---
 
-## Design Philosophy
-
-Baton uses a lean implementation to tackle this problematic
-
-Three clean design principles follow:
-
-1. **Coordinator-centric state** — All distributed primitives (counters, booleans, references, barriers, queues) live in the orchestrator's JVM. Agents access them via HTTP. No distributed consensus needed.
-2. **Explicit class shipping** — Instead of peer class loading (which needs a cluster), the lambda's class bytes are serialized alongside the lambda instance. The agent deserializes using a temporary classloader over those bytes. Same effect, zero cluster infrastructure.
-3. **HTTP everywhere** — The JDK ships with `com.sun.net.httpserver.HttpServer`. That is the entire transport layer.
-
-**Single allowed external dependency:** `sshj` (`com.hierynomus:sshj`) — a pure-Java SSH/SCP library from a small independent maintainer. Used only for remote agent deployment. Optional: if Angela already provides SSH helpers, use those in the adapter instead.
-
----
-
-## Repository Layout
+## How it works
 
 ```
-baton/                          ← standalone project, published to Maven Central
-├── baton-api/                  ← public API — pure Java, zero deps
-├── baton-core/                 ← implements baton-api (JDK HttpServer)
-├── baton-agent/                ← fat JAR deployed to remote hosts
-└── baton-deployer/             ← SSH/SCP agent lifecycle (optional, uses sshj)
+        - Execute lambda on remote servers
+        - Use Distributed primitives (CyclicBarrier, AtomicReference, etc.)
+                ▼
+                │  JAVA
+       ┌────────┴────────┐
+       │ BATON JAVA API  │
+ ┌──────                 ──────────────────┐
+ │       Orchestrator JVM                  │
+ │                                         │
+ │  BatonFabric  ──►  HTTP Server (:8080)  │
+ │     │               (holds all state)   │
+ │     │                                   │
+ │  counter / boolean / reference          │
+ │  barrier / queue                        │
+ └──────────────┬──────────────────────────┘
+                │  HTTP
+        ┌───────┴────────┐
+        ▼                ▼
+  Agent JVM A      Agent JVM B
+  (remote)         (remote)
 ```
 
+All distributed state lives in the **orchestrator** JVM and is served over plain HTTP (JDK `HttpServer` — zero external deps). **Agents** are remote JVMs that receive serialised lambda jobs, execute them, and POST results back. Agents send heartbeats; once heartbeat grace is exceeded (15s by default), pending futures for that agent are failed.
+
+**Three core principles:**
+1. **Coordinator-centric state** — no distributed consensus, no quorum.
+2. **Explicit class shipping** — lambda bytecode travels with the lambda; agents use a temporary classloader.
+3. **HTTP everywhere** — the only transport is the JDK's built-in HTTP server.
+
+---
+
+## Modules
+
+| Module | Artifact | Purpose |
+|---|---|---|
+| `baton-api` | `io.baton:baton-api` | Public interfaces: `Fabric`, `NodeId`, distributed primitive types |
+| `baton-core` | `io.baton:baton-core` | Orchestrator, HTTP server, in-memory state, HTTP proxy primitives |
+| `baton-agent` | `io.baton:baton-agent` | Standalone fat JAR deployed on remote hosts |
+| `baton-deployer` | `io.baton:baton-deployer` | SSH/SCP agent deployment (`SshAgentLauncher`) |
+
+---
+
+## Quick start
+
+### Add the dependency
+
+**Gradle:**
+```groovy
+repositories { mavenLocal() }
+
+dependencies {
+    implementation 'io.baton:baton-core:1.0.0-SNAPSHOT'
+}
+```
+
+**Maven:**
+```xml
+<dependency>
+  <groupId>io.baton</groupId>
+  <artifactId>baton-core</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+</dependency>
+```
+
+### Distributed primitives
+
+```java
+// port 0 → OS picks a free port; use -1 for a pure in-process fabric (no HTTP server)
+try (Fabric fabric = FabricFactory.create(0)) {
+
+    // Counter
+    DistributedCounter hits = fabric.counter("hits", 0L);
+    hits.incrementAndGet();                  // → 1
+    hits.compareAndSet(1L, 42L);            // → true
+
+    // Boolean
+    DistributedBoolean ready = fabric.bool("ready", false);
+    ready.set(true);
+
+    // Reference (any Serializable value)
+    DistributedReference<String> label = fabric.reference("label", "v1");
+    label.compareAndSet("v1", "v2");
+
+    // Barrier — synchronises N threads or jobs before any proceeds
+    DistributedBarrier gate = fabric.barrier("gate", 2);
+
+    // Queue
+    DistributedQueue<String> tasks = fabric.queue("tasks");
+    tasks.put("work-item");
+    String item = tasks.take();             // blocks until available
+}
+```
+
+### Execute jobs on worker nodes
+
+```java
+try (Fabric fabric = FabricFactory.create(0)) {
+
+    // Register a local worker (same JVM, useful for testing)
+    NodeId worker = fabric.connectLocal();
+
+    // Runnable — fire and wait
+    DistributedCounter counter = fabric.counter("n", 0L);
+    fabric.executeAsync(worker, () -> counter.incrementAndGet()).get();
+    System.out.println(counter.get()); // 1
+
+    // Callable — returns a value
+    Future<String> f = fabric.executeAsync(worker, () -> "hello from worker");
+    System.out.println(f.get()); // "hello from worker"
+
+    // Exception propagates as ExecutionException
+    Future<Void> bad = fabric.executeAsync(worker, () -> { throw new RuntimeException("boom"); });
+    try {
+        bad.get();
+    } catch (ExecutionException e) {
+        System.out.println(e.getCause().getMessage()); // "boom"
+    }
+}
+```
+
+### Barrier example — synchronise two concurrent jobs
+
+```java
+try (Fabric fabric = FabricFactory.create(0)) {
+    NodeId w1 = fabric.connectLocal();
+    NodeId w2 = fabric.connectLocal();
+
+    DistributedBarrier gate    = fabric.barrier("gate", 2);
+    DistributedCounter counter = fabric.counter("count", 0L);
+
+    Future<Void> f1 = fabric.executeAsync(w1, () -> {
+        gate.await();             // waits for both workers
+        counter.incrementAndGet();
+    });
+    Future<Void> f2 = fabric.executeAsync(w2, () -> {
+        gate.await();
+        counter.incrementAndGet();
+    });
+
+    f1.get(); f2.get();
+    System.out.println(counter.get()); // 2
+}
+```
+
+---
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md) — installation, first fabric, running tests
+- [Distributed Primitives](docs/primitives.md) — full API for counter, boolean, reference, queue, barrier
+- [Job Execution](docs/jobs.md) — local and remote lambda dispatch, exception handling
+- [SSH Deployment](docs/deployment.md) — deploying agents on remote hosts
