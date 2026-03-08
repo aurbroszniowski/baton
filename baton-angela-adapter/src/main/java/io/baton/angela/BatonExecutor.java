@@ -32,11 +32,14 @@ import org.terracotta.angela.common.topology.InstanceId;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import org.terracotta.angela.common.cluster.Cluster;
 
@@ -45,8 +48,9 @@ import org.terracotta.angela.common.cluster.Cluster;
  */
 class BatonExecutor implements Executor {
 
-    private final Fabric fabric;
-    private final UUID   groupId;
+    private final Fabric                                     fabric;
+    private final UUID                                       groupId;
+    private final Map<String, BlockingQueue<FileTransfer>>   transferQueues = new ConcurrentHashMap<>();
 
     BatonExecutor(Fabric fabric, UUID groupId) {
         this.fabric  = fabric;
@@ -117,8 +121,8 @@ class BatonExecutor implements Executor {
 
     @Override
     public BlockingQueue<FileTransfer> getFileTransferQueue(InstanceId instanceId) {
-        // TODO Phase 5
-        throw new UnsupportedOperationException("File transfer queue not yet implemented");
+        return transferQueues.computeIfAbsent(instanceId + "@file-transfer-queue",
+                k -> new LinkedBlockingQueue<>(500));
     }
 
     @Override
