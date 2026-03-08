@@ -18,7 +18,7 @@ ext {
 }
 
 allprojects {
-    group = (rootProject.findProperty('group') ?: 'io.baton').toString()
+    group = (rootProject.findProperty('group') ?: 'io.github.aurbroszniowski.baton').toString()
     version = (rootProject.findProperty('version') ?: '1.0.0-SNAPSHOT').toString()
 
     repositories {

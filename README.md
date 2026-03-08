@@ -44,8 +44,8 @@ All distributed state lives in the **orchestrator** JVM and is served over plain
 
 | Module | Artifact | Purpose |
 |---|---|---|
-| `baton-api` | `io.baton:baton-api` | Public interfaces: `Fabric`, `NodeId`, distributed primitive types |
-| `baton-core` | `io.baton:baton-core` | Orchestrator, HTTP server, in-memory state, HTTP proxy primitives, SSH deployment |
+| `baton-api` | `io.github.aurbroszniowski.baton:baton-api` | Public interfaces: `Fabric`, `NodeId`, distributed primitive types |
+| `baton-core` | `io.github.aurbroszniowski.baton:baton-core` | Orchestrator, HTTP server, in-memory state, HTTP proxy primitives, SSH deployment |
 | `baton-agent` | *(not published)* | Standalone fat JAR embedded inside `baton-core` and deployed automatically |
 
 ---
@@ -59,16 +59,16 @@ All distributed state lives in the **orchestrator** JVM and is served over plain
 repositories { mavenLocal() }
 
 dependencies {
-    implementation 'io.baton:baton-core:1.0.0-SNAPSHOT'
+    implementation 'io.github.aurbroszniowski.baton:baton-core:1.0.0'
 }
 ```
 
 **Maven:**
 ```xml
 <dependency>
-  <groupId>io.baton</groupId>
+  <groupId>io.github.aurbroszniowski.baton</groupId>
   <artifactId>baton-core</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.0.0</version>
 </dependency>
 ```
 

@@ -13,7 +13,7 @@ cd baton
 ./gradlew publishToMavenLocal -x test
 ```
 
-This installs all four modules to `~/.m2/repository/io/baton/`.
+This installs all published modules to `~/.m2/repository/io/github/aurbroszniowski/baton/`.
 
 ## Add the dependency
 
@@ -27,7 +27,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'io.baton:baton-core:1.0.0-SNAPSHOT'
+    implementation 'io.github.aurbroszniowski.baton:baton-core:1.0.0'
 }
 ```
 
@@ -41,9 +41,9 @@ dependencies {
 </repositories>
 
 <dependency>
-  <groupId>io.baton</groupId>
+  <groupId>io.github.aurbroszniowski.baton</groupId>
   <artifactId>baton-core</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.0.0</version>
 </dependency>
 ```
 
