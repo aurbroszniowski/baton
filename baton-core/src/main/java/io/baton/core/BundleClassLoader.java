@@ -20,7 +20,7 @@ import java.util.Map;
 /**
  * A {@link ClassLoader} backed entirely by an in-memory map of {@code className → bytecode}.
  *
- * <p>The agent instantiates one of these for each incoming {@link ClassBundle} before
+ * <p>The agent instantiates one of these for each incoming {@link io.baton.ClassBundle} before
  * deserializing the lambda.  Classes not found here are delegated to the parent
  * (the agent's application classloader).
  */

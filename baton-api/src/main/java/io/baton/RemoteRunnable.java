@@ -22,8 +22,8 @@ import java.io.Serializable;
  *
  * <p>Implementations must be serializable (lambdas automatically are when the
  * target interface extends {@link Serializable}).  All classes captured by the
- * lambda that are not part of the JDK will be shipped automatically by
- * {@link io.baton.core.ClassCollector}.
+ * lambda that are not part of the JDK will be shipped automatically by the
+ * orchestrator's class collector.
  */
 @FunctionalInterface
 public interface RemoteRunnable extends Serializable {

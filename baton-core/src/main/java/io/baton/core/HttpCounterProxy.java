@@ -23,7 +23,7 @@ import java.io.IOException;
  * HTTP-backed {@link DistributedCounter} proxy.
  *
  * <p>Carries the orchestrator base URL and counter name.  When captured in a
- * lambda and shipped to an agent via {@link ClassBundle}, every operation
+ * lambda and shipped to an agent via {@link io.baton.ClassBundle}, every operation
  * calls back to the orchestrator over HTTP, so all agents share the same
  * counter state.
  */
