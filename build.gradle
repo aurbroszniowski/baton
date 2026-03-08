@@ -1,6 +1,25 @@
+plugins {
+    id 'io.github.gradle-nexus.publish-plugin' version '2.0.0'
+}
+
+ext {
+    pomUrl = 'https://github.com/aurbroszniowski/baton'
+    pomScmConnection = 'scm:git:https://github.com/aurbroszniowski/baton.git'
+    pomScmDeveloperConnection = 'scm:git:ssh://git@github.com:aurbroszniowski/baton.git'
+    pomDeveloperId = (findProperty('pomDeveloperId') ?: 'aurbroszniowski').toString()
+    pomDeveloperName = (findProperty('pomDeveloperName') ?: 'Aurelien Broszniowski').toString()
+    pomDeveloperEmail = (findProperty('pomDeveloperEmail') ?: 'Aurelien.Broszniowski@ibm.com').toString()
+    moduleDescriptions = [
+            'baton-api'     : 'Public Baton APIs: Fabric, NodeId, distributed primitive interfaces',
+            'baton-core'    : 'Baton orchestrator runtime: HTTP server, in-memory state, and dispatch',
+            'baton-agent'   : 'Standalone Baton agent runtime for remote execution',
+            'baton-deployer': 'SSH/SCP deployer for Baton agents'
+    ]
+}
+
 allprojects {
-    group = 'io.baton'
-    version = '1.0.0-SNAPSHOT'
+    group = (rootProject.findProperty('group') ?: 'io.baton').toString()
+    version = (rootProject.findProperty('version') ?: '1.0.0-SNAPSHOT').toString()
 
     repositories {
         mavenCentral()
@@ -11,11 +30,39 @@ allprojects {
 subprojects {
     apply plugin: 'java-library'
     apply plugin: 'maven-publish'
+    apply plugin: 'signing'
 
     publishing {
         publications {
             mavenJava(MavenPublication) {
                 from components.java
+
+                pom {
+                    name = "Baton ${project.name}"
+                    description = rootProject.ext.moduleDescriptions.get(project.name, "Baton module ${project.name}")
+                    url = rootProject.ext.pomUrl
+
+                    licenses {
+                        license {
+                            name = 'Apache License, Version 2.0'
+                            url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                        }
+                    }
+
+                    developers {
+                        developer {
+                            id = rootProject.ext.pomDeveloperId
+                            name = rootProject.ext.pomDeveloperName
+                            email = rootProject.ext.pomDeveloperEmail
+                        }
+                    }
+
+                    scm {
+                        connection = rootProject.ext.pomScmConnection
+                        developerConnection = rootProject.ext.pomScmDeveloperConnection
+                        url = rootProject.ext.pomUrl
+                    }
+                }
             }
         }
     }
@@ -23,6 +70,24 @@ subprojects {
     java {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        withSourcesJar()
+        withJavadocJar()
+    }
+
+    signing {
+        required {
+            gradle.taskGraph.allTasks.any { t ->
+                t.name.toLowerCase().contains('publish') || t.name.toLowerCase().contains('sonatype')
+            }
+        }
+
+        def signingKey = findProperty('signingKey') as String
+        def signingPassword = findProperty('signingPassword') as String
+        if (signingKey && signingPassword) {
+            useInMemoryPgpKeys(signingKey, signingPassword)
+        }
+
+        sign publishing.publications
     }
 
     tasks.withType(JavaCompile) {
@@ -31,5 +96,16 @@ subprojects {
 
     tasks.withType(Test) {
         useJUnitPlatform()
+    }
+}
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl = uri('https://ossrh-staging-api.central.sonatype.com/service/local/')
+            snapshotRepositoryUrl = uri('https://central.sonatype.com/repository/maven-snapshots/')
+            username = findProperty('sonatypeUsername') as String
+            password = findProperty('sonatypePassword') as String
+        }
     }
 }

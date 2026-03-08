@@ -1,4 +1,14 @@
 dependencies {
     api project(':baton-api')
+    implementation 'com.hierynomus:sshj:0.32.0'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
+}
+
+// Embed the baton-agent fat JAR as a classpath resource so SshAgentLauncher
+// can extract and deploy it without any manual setup.
+processResources {
+    from(project(':baton-agent').tasks.named('jar')) {
+        into 'io/baton/deployer'
+        rename { 'baton-agent.jar' }
+    }
 }

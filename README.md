@@ -45,9 +45,8 @@ All distributed state lives in the **orchestrator** JVM and is served over plain
 | Module | Artifact | Purpose |
 |---|---|---|
 | `baton-api` | `io.baton:baton-api` | Public interfaces: `Fabric`, `NodeId`, distributed primitive types |
-| `baton-core` | `io.baton:baton-core` | Orchestrator, HTTP server, in-memory state, HTTP proxy primitives |
-| `baton-agent` | `io.baton:baton-agent` | Standalone fat JAR deployed on remote hosts |
-| `baton-deployer` | `io.baton:baton-deployer` | SSH/SCP agent deployment (`SshAgentLauncher`) |
+| `baton-core` | `io.baton:baton-core` | Orchestrator, HTTP server, in-memory state, HTTP proxy primitives, SSH deployment |
+| `baton-agent` | *(not published)* | Standalone fat JAR embedded inside `baton-core` and deployed automatically |
 
 ---
 

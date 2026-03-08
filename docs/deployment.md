@@ -1,18 +1,17 @@
 # SSH Deployment
 
-The `baton-deployer` module provides `AgentDeployer` and `SshAgentLauncher` for shipping the `baton-agent` fat JAR to remote hosts and starting agents automatically.
+SSH deployment is built into `baton-core`. The `AgentDeployer` and `SshAgentLauncher` classes ship the `baton-agent` fat JAR to remote hosts and start agents automatically — no extra dependency required.
 
 ---
 
 ## Dependency
 
-Add `baton-deployer` alongside `baton-core`:
+Just declare `baton-core`:
 
 **Gradle:**
 ```groovy
 dependencies {
     implementation 'io.baton:baton-core:1.0.0-SNAPSHOT'
-    implementation 'io.baton:baton-deployer:1.0.0-SNAPSHOT'
 }
 ```
 
@@ -21,11 +20,6 @@ dependencies {
 <dependency>
   <groupId>io.baton</groupId>
   <artifactId>baton-core</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
-</dependency>
-<dependency>
-  <groupId>io.baton</groupId>
-  <artifactId>baton-deployer</artifactId>
   <version>1.0.0-SNAPSHOT</version>
 </dependency>
 ```
@@ -79,27 +73,27 @@ deployer.stop(remote);
 
 ## fabric.deployAndConnect()
 
-`Fabric` exposes a convenience wrapper that internally delegates to the `AgentLauncher` SPI (resolved via `ServiceLoader`). With `baton-deployer` on the classpath, `SshAgentLauncher` is picked up automatically.
+`Fabric` exposes a convenience wrapper that internally delegates to the `AgentLauncher` SPI (resolved via `ServiceLoader`). `SshAgentLauncher` is registered automatically.
 
-The JAR path is read from the system property `baton.agent.jar`:
-
-```bash
-java -Dbaton.agent.jar=/path/to/baton-agent-fat.jar -jar your-app.jar
-```
-
-Then in code:
+The agent fat JAR is embedded inside `baton-core` and extracted to a temporary file automatically — no manual download or system property required:
 
 ```java
 try (Fabric fabric = FabricFactory.create(9400)) {
 
     SshConfig ssh = SshConfig.of("alice", "~/.ssh/id_rsa");
 
-    // Deploys the JAR and resolves the registered NodeId from the registry when available
+    // Deploys the embedded agent JAR and returns once the agent is registered
     NodeId remote = fabric.deployAndConnect("server-a.example.com", ssh);
 
     Future<Integer> f = fabric.executeAsync(remote, () -> Runtime.getRuntime().availableProcessors());
     System.out.println("Remote CPUs: " + f.get());
 }
+```
+
+To use a custom agent build instead, set the system property `baton.agent.jar` to override the embedded JAR:
+
+```bash
+java -Dbaton.agent.jar=/path/to/custom-agent.jar -jar your-app.jar
 ```
 
 ---
