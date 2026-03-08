@@ -8,12 +8,10 @@ ext {
     pomScmDeveloperConnection = 'scm:git:ssh://git@github.com:aurbroszniowski/baton.git'
     pomDeveloperId = (findProperty('pomDeveloperId') ?: 'aurbroszniowski').toString()
     pomDeveloperName = (findProperty('pomDeveloperName') ?: 'Aurelien Broszniowski').toString()
-    pomDeveloperEmail = (findProperty('pomDeveloperEmail') ?: 'Aurelien.Broszniowski@ibm.com').toString()
+    pomDeveloperEmail = (findProperty('pomDeveloperEmail') ?: 'contact@jsoft.biz').toString()
     moduleDescriptions = [
-            'baton-api'     : 'Public Baton APIs: Fabric, NodeId, distributed primitive interfaces',
-            'baton-core'    : 'Baton orchestrator runtime: HTTP server, in-memory state, and dispatch',
-            'baton-agent'   : 'Standalone Baton agent runtime for remote execution',
-            'baton-deployer': 'SSH/SCP deployer for Baton agents'
+            'baton-api' : 'Public Baton APIs: Fabric, NodeId, distributed primitive interfaces',
+            'baton-core': 'Baton orchestrator runtime: HTTP server, in-memory state, and dispatch',
     ]
 }
 
@@ -29,43 +27,6 @@ allprojects {
 
 subprojects {
     apply plugin: 'java-library'
-    apply plugin: 'maven-publish'
-    apply plugin: 'signing'
-
-    publishing {
-        publications {
-            mavenJava(MavenPublication) {
-                from components.java
-
-                pom {
-                    name = "Baton ${project.name}"
-                    description = rootProject.ext.moduleDescriptions.get(project.name, "Baton module ${project.name}")
-                    url = rootProject.ext.pomUrl
-
-                    licenses {
-                        license {
-                            name = 'Apache License, Version 2.0'
-                            url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
-                        }
-                    }
-
-                    developers {
-                        developer {
-                            id = rootProject.ext.pomDeveloperId
-                            name = rootProject.ext.pomDeveloperName
-                            email = rootProject.ext.pomDeveloperEmail
-                        }
-                    }
-
-                    scm {
-                        connection = rootProject.ext.pomScmConnection
-                        developerConnection = rootProject.ext.pomScmDeveloperConnection
-                        url = rootProject.ext.pomUrl
-                    }
-                }
-            }
-        }
-    }
 
     java {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -74,28 +35,69 @@ subprojects {
         withJavadocJar()
     }
 
-    signing {
-        required {
-            gradle.taskGraph.allTasks.any { t ->
-                t.name.toLowerCase().contains('publish') || t.name.toLowerCase().contains('sonatype')
-            }
-        }
-
-        def signingKey = findProperty('signingKey') as String
-        def signingPassword = findProperty('signingPassword') as String
-        if (signingKey && signingPassword) {
-            useInMemoryPgpKeys(signingKey, signingPassword)
-        }
-
-        sign publishing.publications
-    }
-
     tasks.withType(JavaCompile) {
         options.encoding = 'UTF-8'
     }
 
     tasks.withType(Test) {
         useJUnitPlatform()
+    }
+
+    // baton-agent is an internal fat JAR embedded in baton-core — not published to Central
+    if (project.name != 'baton-agent') {
+        apply plugin: 'maven-publish'
+        apply plugin: 'signing'
+
+        publishing {
+            publications {
+                mavenJava(MavenPublication) {
+                    from components.java
+
+                    pom {
+                        name = "Baton ${project.name}"
+                        description = rootProject.ext.moduleDescriptions.get(project.name, "Baton module ${project.name}")
+                        url = rootProject.ext.pomUrl
+
+                        licenses {
+                            license {
+                                name = 'Apache License, Version 2.0'
+                                url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                            }
+                        }
+
+                        developers {
+                            developer {
+                                id = rootProject.ext.pomDeveloperId
+                                name = rootProject.ext.pomDeveloperName
+                                email = rootProject.ext.pomDeveloperEmail
+                            }
+                        }
+
+                        scm {
+                            connection = rootProject.ext.pomScmConnection
+                            developerConnection = rootProject.ext.pomScmDeveloperConnection
+                            url = rootProject.ext.pomUrl
+                        }
+                    }
+                }
+            }
+        }
+
+        signing {
+            required {
+                gradle.taskGraph.allTasks.any { t ->
+                    t.name.toLowerCase().contains('publish') || t.name.toLowerCase().contains('sonatype')
+                }
+            }
+
+            def signingKey = findProperty('signingKey') as String
+            def signingPassword = findProperty('signingPassword') as String
+            if (signingKey && signingPassword) {
+                useInMemoryPgpKeys(signingKey, signingPassword)
+            }
+
+            sign publishing.publications
+        }
     }
 }
 
