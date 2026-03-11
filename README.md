@@ -4,6 +4,8 @@
 
 It was built as a drop-in replacement for Apache Ignite inside the [Angela](https://github.com/Terracotta-OSS/angela) distributed test infrastructure.
 
+**If you are a developer** and want to have guidance on the codebase check [README-developer.md](README-developer.md)
+
 ---
 
 ## How it works
@@ -18,7 +20,7 @@ It was built as a drop-in replacement for Apache Ignite inside the [Angela](http
  ┌──────                 ──────────────────┐
  │       Orchestrator JVM                  │
  │                                         │
- │  BatonFabric  ──►  HTTP Server (:8080)  │
+ │  BatonFabric  ──►  HTTP Server          │
  │     │               (holds all state)   │
  │     │                                   │
  │  counter / boolean / reference          │
@@ -37,6 +39,49 @@ All distributed state lives in the **orchestrator** JVM and is served over plain
 1. **Coordinator-centric state** — no distributed consensus, no quorum.
 2. **Explicit class shipping** — lambda bytecode travels with the lambda; agents use a temporary classloader.
 3. **HTTP everywhere** — the only transport is the JDK's built-in HTTP server.
+
+---
+
+## Remote lambda execution
+
+The central idea is that you write an ordinary Java lambda in your orchestrator code and Baton runs it on a remote JVM — transparently, with no RPC stubs, no code generation, and no shared classpath between machines.
+
+**How it works step by step:**
+
+1. **Capture** — when you call `fabric.executeAsync(node, () -> doWork())`, Baton serialises the lambda object using standard Java serialisation.
+2. **Class shipping** — a lambda compiled by javac is backed by a synthetic class (e.g. `MyClass$$Lambda$42`). That class, plus any other classes the lambda directly references that are not part of the JDK, are bundled as raw bytecode into a `ClassBundle` alongside the serialised lambda bytes.
+3. **Transport** — the `ClassBundle` is sent to the target agent over a plain HTTP `POST /job` request.
+4. **Remote loading** — the agent creates a fresh `BundleClassLoader` backed by the received bytecode map. It deserialises the lambda using this classloader so that all synthetic and captured classes resolve correctly.
+5. **Execution** — the agent invokes `RemoteCallable.call()` or `RemoteRunnable.run()` on the deserialised lambda.
+6. **Result** — the return value (or exception) is serialised and `POST`ed back to the orchestrator, which completes the `Future` returned to the caller.
+
+**What can be captured:**
+
+- Any `Serializable` value (primitives, strings, serialisable POJOs).
+- Distributed primitives (`DistributedCounter`, `DistributedReference`, etc.) obtained from the `Fabric` in HTTP mode are already serialisable HTTP proxies — they can be captured and will call back to the orchestrator transparently from inside the remote lambda.
+
+**What cannot be captured:**
+
+- Non-serialisable objects (e.g. open file handles, raw threads).
+- Classes whose bytecode is not visible to the orchestrator at dispatch time (e.g. classes loaded by a custom classloader at runtime).
+
+---
+
+## Distributed primitives
+
+Distributed primitives are named, shared variables whose state lives exclusively in the orchestrator JVM. Any node — local or remote — that holds a reference to a primitive talks to the orchestrator over HTTP to read or update it. There is no peer-to-peer synchronisation and no consensus protocol; the orchestrator is the single source of truth.
+
+| Primitive | Factory method | Description |
+|---|---|---|
+| `DistributedCounter` | `fabric.counter(name, initial)` | 64-bit integer with atomic increment, CAS, and get-and-set |
+| `DistributedBoolean` | `fabric.bool(name, initial)` | Boolean flag with CAS |
+| `DistributedReference<T>` | `fabric.reference(name, initial)` | Holds any `Serializable` value, with CAS |
+| `DistributedBarrier` | `fabric.barrier(name, parties)` | Cyclic barrier — blocks until all `parties` have called `await()`, then resets |
+| `DistributedQueue<T>` | `fabric.queue(name)` | FIFO blocking queue — `put` / `take` / `poll` with timeout |
+
+Primitives with the same name share the same underlying state — any two calls to `fabric.counter("hits", 0L)` return handles to the same counter, whether they come from the same thread, different threads, or different JVMs connected to the same orchestrator.
+
+In local mode (`FabricFactory.create(-1)`) all state is in-process with no HTTP overhead, which makes primitives suitable for multi-threaded coordination within a single JVM as well.
 
 ---
 

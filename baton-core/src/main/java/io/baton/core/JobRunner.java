@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.baton.agent;
+package io.baton.core;
 
 import io.baton.ClassBundle;
 import io.baton.RemoteCallable;
@@ -50,10 +50,15 @@ public class JobRunner {
         this.agentRunId       = agentRunId;
     }
 
+    /**
+     * Accepts the raw HTTP body from {@code POST /job}, deserializes the bundle,
+     * runs the lambda asynchronously, and sends the result back.
+     */
     public void accept(byte[] payload) {
         pool.submit(() -> {
             String jobId = null;
             try {
+                // Parse payload: jobId (UTF) + ClassBundle (object)
                 ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(payload));
                 jobId = ois.readUTF();
                 ClassBundle bundle = (ClassBundle) ois.readObject();
@@ -75,9 +80,12 @@ public class JobRunner {
         pool.shutdownNow();
     }
 
+    // ── Private helpers ────────────────────────────────────────────────────────
+
     private Object execute(ClassBundle bundle) throws Exception {
         BundleClassLoader loader = new BundleClassLoader(bundle.classes, getClass().getClassLoader());
 
+        // Deserialize lambda using our custom classloader so synthetic classes resolve
         ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bundle.lambda)) {
             @Override
             protected Class<?> resolveClass(ObjectStreamClass desc) throws ClassNotFoundException, java.io.IOException {
@@ -107,7 +115,7 @@ public class JobRunner {
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/octet-stream");
         conn.getOutputStream().write(body);
-        conn.getResponseCode();
+        conn.getResponseCode(); // ensure the request is sent
     }
 
     private byte[] serialize(Object obj) throws IOException {

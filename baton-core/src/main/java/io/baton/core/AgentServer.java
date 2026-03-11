@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.baton.agent;
+package io.baton.core;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -36,8 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * POST /job          ← receives ClassBundle, dispatches to JobRunner
  * GET  /health       ← liveness probe
  * POST /shutdown     ← graceful stop
- * POST /files        ← receive uploaded files
- * GET  /files/{path} ← serve files for download
+ * POST /files        ← receive uploaded files (Phase 5)
+ * GET  /files/{path} ← serve files for download (Phase 5)
  * </pre>
  */
 public class AgentServer {
@@ -74,10 +74,12 @@ public class AgentServer {
         runner.shutdown();
     }
 
+    // ── Handlers ──────────────────────────────────────────────────────────────
+
     private void handleJob(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
         byte[] payload = readBodyBytes(ex);
-        runner.accept(payload);
+        runner.accept(payload); // async — returns immediately
         sendText(ex, 200, "accepted");
     }
 
@@ -88,12 +90,14 @@ public class AgentServer {
     private void handleShutdown(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
         sendText(ex, 200, "stopping");
+        // Stop asynchronously so we can finish sending the response first
         Thread t = new Thread(shutdownHook, "baton-shutdown");
         t.setDaemon(false);
         t.start();
     }
 
     private void handleFiles(HttpExchange ex) throws IOException {
+        // Extract ?path=<encoded-remote-path> from query string
         String query = ex.getRequestURI().getQuery();
         String remotePath = null;
         if (query != null) {
@@ -106,6 +110,7 @@ public class AgentServer {
         }
         if (remotePath == null) { sendStatus(ex, 400); return; }
 
+        // Expand leading ~ to the user's home directory
         Path path = Path.of(remotePath.replaceFirst("^~", System.getProperty("user.home")));
 
         String method = ex.getRequestMethod().toUpperCase();
@@ -124,6 +129,8 @@ public class AgentServer {
             sendStatus(ex, 405);
         }
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private byte[] readBodyBytes(HttpExchange ex) throws IOException {
         try (InputStream in = ex.getRequestBody()) {

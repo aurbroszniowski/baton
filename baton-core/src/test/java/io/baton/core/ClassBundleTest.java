@@ -87,7 +87,7 @@ class ClassBundleTest {
         }
     }
 
-    // ── Full round-trip: ClassCollector → ClassBundle → BundleClassLoader → execute ──
+    // ── Full round-trip: ClassCollector -> ClassBundle -> BundleClassLoader -> execute ──
 
     @Test
     void roundTrip_remoteRunnable_executes() throws Exception {

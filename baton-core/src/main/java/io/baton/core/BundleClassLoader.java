@@ -18,7 +18,7 @@ package io.baton.core;
 import java.util.Map;
 
 /**
- * A {@link ClassLoader} backed entirely by an in-memory map of {@code className → bytecode}.
+ * A {@link ClassLoader} backed entirely by an in-memory map of {@code className -> bytecode}.
  *
  * <p>The agent instantiates one of these for each incoming {@link io.baton.ClassBundle} before
  * deserializing the lambda.  Classes not found here are delegated to the parent

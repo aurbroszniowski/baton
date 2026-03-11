@@ -24,7 +24,7 @@ package io.baton;
  *
  * <pre>{@code
  * // baton-deployer registers:
- * //   META-INF/services/io.baton.AgentLauncher → io.baton.deployer.SshAgentLauncher
+ * //   META-INF/services/io.baton.AgentLauncher -> io.baton.deployer.SshAgentLauncher
  * }</pre>
  */
 public interface AgentLauncher {

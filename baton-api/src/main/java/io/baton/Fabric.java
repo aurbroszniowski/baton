@@ -47,6 +47,12 @@ public interface Fabric extends AutoCloseable {
     /** Returns the {@link NodeId} of the orchestrator itself. */
     NodeId getLocalNodeId();
 
+    /** Returns the port the orchestrator HTTP server is listening on, or -1 if not in server mode. */
+    int getOrchestratorPort();
+
+    /** Returns the base URL of the orchestrator HTTP server (e.g. "http://host:port"), or null if not in server mode. */
+    String getOrchestratorUrl();
+
     /** SSH into {@code hostname}, SCP the agent JAR, start the agent process, and wait for it to register. */
     NodeId deployAndConnect(String hostname, SshConfig ssh);
 

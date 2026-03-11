@@ -35,6 +35,8 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.stream.Stream;
 import java.util.Collection;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -59,7 +61,7 @@ public class BatonFabric implements Fabric {
 
     /** Short run ID for correlating log lines from the same orchestrator instance. */
     private final String             runId       = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    private final NodeId             localNodeId;
+    private NodeId                   localNodeId;
     private final PrimitivesStore    primitives  = new PrimitivesStore();
     private final BarrierCoordinator barriers    = new BarrierCoordinator();
     private final QueueStore         queues      = new QueueStore();
@@ -79,7 +81,7 @@ public class BatonFabric implements Fabric {
     private final String      baseUrl; // null in local-only mode
 
     public BatonFabric(int orchestratorPort) {
-        this.localNodeId = buildLocalNodeId();
+        this.localNodeId = buildLocalNodeId(0); // placeholder with port 0
         // Wire runId and death listener (field initializers have already run)
         dispatcher.setRunId(runId);
         registry.setRunId(runId);
@@ -97,11 +99,21 @@ public class BatonFabric implements Fabric {
         }
         this.server  = s;
         this.baseUrl = url;
+        if (server != null) {
+            // Update with actual HTTP port so getPeerAddresses() returns the right address
+            NodeId old = this.localNodeId;
+            this.localNodeId = new NodeId(old.getName(), old.getHostname(), server.getPort(), old.getPid());
+        }
     }
 
     /** Returns the actual orchestrator port (useful when started with port 0), or -1 in local mode. */
     public int getOrchestratorPort() {
         return server != null ? server.getPort() : -1;
+    }
+
+    @Override
+    public String getOrchestratorUrl() {
+        return baseUrl;
     }
 
     // ── Node lifecycle ─────────────────────────────────────────────────────────
@@ -121,7 +133,7 @@ public class BatonFabric implements Fabric {
         try {
             NodeId provisional = launcher.launch(hostname, ssh, baseUrl);
             // The deployer may return a NodeId with pid=-1 (placeholder). Look up the
-            // actual registered NodeId (with real PID) so that jobId→node tracking in
+            // actual registered NodeId (with real PID) so that jobId->node tracking in
             // JobDispatcher and failAgent() lookup stay consistent.
             long deadline = System.currentTimeMillis() + 5_000;
             while (System.currentTimeMillis() < deadline) {
@@ -228,6 +240,27 @@ public class BatonFabric implements Fabric {
 
     @Override
     public void upload(NodeId node, Path localPath, String remotePath) {
+        if (Files.isDirectory(localPath)) {
+            try (Stream<Path> stream = Files.walk(localPath)) {
+                stream.filter(Files::isRegularFile).forEach(file -> {
+                    String rel = localPath.relativize(file).toString().replace(java.io.File.separatorChar, '/');
+                    upload(node, file, remotePath + "/" + rel);
+                });
+            } catch (IOException e) {
+                throw new RuntimeException("Upload directory to " + node + " failed: " + e.getMessage(), e);
+            }
+            return;
+        }
+        if (isLocalNode(node)) {
+            try {
+                Path target = Path.of(remotePath.replaceFirst("^~(/|$)", System.getProperty("user.home") + "/"));
+                if (target.getParent() != null) Files.createDirectories(target.getParent());
+                Files.copy(localPath, target, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                throw new RuntimeException("Local upload failed: " + e.getMessage(), e);
+            }
+            return;
+        }
         try {
             byte[] bytes = Files.readAllBytes(localPath);
             String url = "http://" + node.getHostname() + ":" + node.getPort()
@@ -285,7 +318,7 @@ public class BatonFabric implements Fabric {
         return localNodes.contains(node) || node.equals(localNodeId);
     }
 
-    private static NodeId buildLocalNodeId() {
+    private static NodeId buildLocalNodeId(int port) {
         String hostname;
         try {
             hostname = InetAddress.getLocalHost().getHostName();
@@ -293,6 +326,6 @@ public class BatonFabric implements Fabric {
             hostname = "localhost";
         }
         int pid = (int) ProcessHandle.current().pid(); // ProcessHandle.pid() returns long
-        return new NodeId("orchestrator", hostname, 0, pid);
+        return new NodeId("orchestrator", hostname, port, pid);
     }
 }

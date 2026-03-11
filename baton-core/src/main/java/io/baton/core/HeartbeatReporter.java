@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.baton.agent;
+package io.baton.core;
 
 import io.baton.NodeId;
 
@@ -27,7 +27,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Sends a {@code POST /agent/heartbeat} to the orchestrator every 5 seconds.
+ * Sends a {@code POST /agent/heartbeat} to the orchestrator every 5 seconds so that
+ * {@link AgentRegistry} can detect dead agents.
  */
 public class HeartbeatReporter {
 

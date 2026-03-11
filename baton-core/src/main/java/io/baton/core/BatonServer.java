@@ -197,6 +197,15 @@ class BatonServer {
         String op   = segs[4];
 
         switch (op) {
+            case "init": {
+                // Set-if-absent: registers the initial value only if no entry exists yet.
+                // Body contains the serialized initial value (may be zero-length for null).
+                byte[] initBody = readBodyBytes(ex);
+                Serializable initVal = initBody.length > 0 ? (Serializable) deserializeObject(initBody) : null;
+                primitives.getOrCreateReference(name, initVal);
+                sendText(ex, 200, "OK");
+                break;
+            }
             case "get": {
                 DistributedReference<Serializable> ref =
                         (DistributedReference<Serializable>) primitives.getOrCreateReference(name, (Serializable) null);

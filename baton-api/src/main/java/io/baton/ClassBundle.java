@@ -35,7 +35,7 @@ public final class ClassBundle implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    /** className (binary, dots) → bytecode of each non-JDK class the lambda touches. */
+    /** className (binary, dots) -> bytecode of each non-JDK class the lambda touches. */
     public final Map<String, byte[]> classes;
 
     /** Serialized lambda instance (produced by {@code ClassCollector} in baton-core). */

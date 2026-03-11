@@ -48,7 +48,7 @@ class HttpTransportIT {
 
     @BeforeEach
     void setUp() {
-        fabric  = new BatonFabric(0); // port 0 → OS picks a free port
+        fabric  = new BatonFabric(0); // port 0 -> OS picks a free port
         baseUrl = "http://localhost:" + fabric.getOrchestratorPort();
     }
 
@@ -61,7 +61,7 @@ class HttpTransportIT {
 
     @Test
     void httpCounter_twoSidesShareState() {
-        // Side A: create via Fabric (HTTP mode → HttpCounterProxy)
+        // Side A: create via Fabric (HTTP mode -> HttpCounterProxy)
         DistributedCounter a = fabric.counter("c", 10L);
 
         // Side B: direct proxy — simulates a remote agent that received the proxy

@@ -56,7 +56,7 @@ public class AgentMain {
 
         NodeId selfId = new NodeId(name, hostname, port, pid);
 
-        System.out.printf("[baton-agent][%s][-] Starting %s → orchestrator=%s%n", agentRunId, selfId, orchestratorUrl);
+        System.out.printf("[baton-agent][%s][-] Starting %s -> orchestrator=%s%n", agentRunId, selfId, orchestratorUrl);
 
         JobRunner runner = new JobRunner(orchestratorUrl, agentRunId);
 

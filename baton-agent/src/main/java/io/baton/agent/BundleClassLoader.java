@@ -18,16 +18,13 @@ package io.baton.agent;
 import java.util.Map;
 
 /**
- * A {@link ClassLoader} backed by an in-memory map of {@code className -> bytecode}.
- *
- * <p>Used by the agent to load lambda support classes from an incoming
- * {@link io.baton.ClassBundle} before lambda deserialization.
+ * A {@link ClassLoader} backed entirely by an in-memory map of {@code className -> bytecode}.
  */
-class BundleClassLoader extends ClassLoader {
+public class BundleClassLoader extends ClassLoader {
 
     private final Map<String, byte[]> classes;
 
-    BundleClassLoader(Map<String, byte[]> classes, ClassLoader parent) {
+    public BundleClassLoader(Map<String, byte[]> classes, ClassLoader parent) {
         super(parent);
         this.classes = classes;
     }
