@@ -28,24 +28,31 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Sends a {@code POST /agent/heartbeat} to the orchestrator every 5 seconds.
+ * If {@link #MAX_MISSED} consecutive heartbeats fail the {@code onOrchestatorGone}
+ * callback is invoked, triggering an agent self-shutdown.
  */
 public class HeartbeatReporter {
 
-    private static final long INTERVAL_MS = 5_000;
+    private static final long INTERVAL_MS  = 5_000;
+    private static final int  MAX_MISSED   = 3; // 15 s of silence → self-shutdown
 
     private final String    orchestratorUrl;
     private final NodeId    selfId;
     private final String    agentRunId;
+    private final Runnable  onOrchestratorGone;
+    private int             missedBeats = 0;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "baton-heartbeat-sender");
         t.setDaemon(true);
         return t;
     });
 
-    public HeartbeatReporter(String orchestratorUrl, NodeId selfId, String agentRunId) {
-        this.orchestratorUrl = orchestratorUrl;
-        this.selfId          = selfId;
-        this.agentRunId      = agentRunId;
+    public HeartbeatReporter(String orchestratorUrl, NodeId selfId, String agentRunId,
+                             Runnable onOrchestratorGone) {
+        this.orchestratorUrl    = orchestratorUrl;
+        this.selfId             = selfId;
+        this.agentRunId         = agentRunId;
+        this.onOrchestratorGone = onOrchestratorGone;
     }
 
     public void start() {
@@ -60,8 +67,16 @@ public class HeartbeatReporter {
         try {
             post(orchestratorUrl + "/agent/heartbeat",
                     nodeIdToString(selfId).getBytes(StandardCharsets.UTF_8));
+            missedBeats = 0; // reset on success
         } catch (IOException e) {
-            System.err.printf("[baton-agent][%s][-] Heartbeat failed: %s%n", agentRunId, e.getMessage());
+            missedBeats++;
+            System.err.printf("[baton-agent][%s][-] Heartbeat failed (%d/%d): %s%n",
+                    agentRunId, missedBeats, MAX_MISSED, e.getMessage());
+            if (missedBeats >= MAX_MISSED) {
+                System.err.printf("[baton-agent][%s][-] Orchestrator unreachable — self-shutting down%n", agentRunId);
+                scheduler.shutdownNow();
+                onOrchestratorGone.run();
+            }
         }
     }
 

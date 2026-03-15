@@ -92,7 +92,7 @@ public class BatonFabric implements Fabric {
         if (orchestratorPort >= 0) { // -1 = local-only mode, no HTTP server
             try {
                 s   = new BatonServer(primitives, barriers, queues, registry, dispatcher, orchestratorPort);
-                url = "http://localhost:" + s.getPort();
+                url = "http://" + resolveOrchestratorHost() + ":" + s.getPort();
             } catch (IOException e) {
                 System.err.printf("[baton][%s][-] WARNING: could not start HTTP server — %s%n", runId, e.getMessage());
             }
@@ -100,9 +100,14 @@ public class BatonFabric implements Fabric {
         this.server  = s;
         this.baseUrl = url;
         if (server != null) {
-            // Update with actual HTTP port so getPeerAddresses() returns the right address
+            // Update with actual HTTP port AND the routable IP (same host used in baseUrl)
+            // so that toNodeId(agentID).equals(localNodeId) holds when the orchestrator
+            // AgentID is built from getOrchestratorUrl().  Without this, isLocalNode()
+            // fails for localhost tests because getHostName() returns the machine name
+            // (e.g. "MacBook-Pro.local") while the AgentID uses the routable IP.
             NodeId old = this.localNodeId;
-            this.localNodeId = new NodeId(old.getName(), old.getHostname(), server.getPort(), old.getPid());
+            String routeableHost = resolveOrchestratorHost();
+            this.localNodeId = new NodeId(old.getName(), routeableHost, server.getPort(), old.getPid());
         }
     }
 
@@ -253,7 +258,15 @@ public class BatonFabric implements Fabric {
         }
         if (isLocalNode(node)) {
             try {
-                Path target = Path.of(remotePath.replaceFirst("^~(/|$)", System.getProperty("user.home") + "/"));
+                String expanded = remotePath;
+                if (expanded.startsWith("angela-root://")) {
+                    String angelaRoot = System.getProperty("angela.rootDir",
+                            System.getProperty("user.home") + "/.angela");
+                    expanded = angelaRoot + "/" + expanded.substring("angela-root://".length());
+                } else {
+                    expanded = expanded.replaceFirst("^~(/|$)", System.getProperty("user.home") + "/");
+                }
+                Path target = Path.of(expanded);
                 if (target.getParent() != null) Files.createDirectories(target.getParent());
                 Files.copy(localPath, target, StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException e) {
@@ -262,10 +275,9 @@ public class BatonFabric implements Fabric {
             return;
         }
         try {
-            byte[] bytes = Files.readAllBytes(localPath);
             String url = "http://" + node.getHostname() + ":" + node.getPort()
                     + "/files?path=" + URLEncoder.encode(remotePath, StandardCharsets.UTF_8.name());
-            OrchestratorHttp.post(url, bytes);
+            OrchestratorHttp.postFile(url, localPath);
         } catch (IOException e) {
             throw new RuntimeException("Upload to " + node + " failed: " + e.getMessage(), e);
         }
@@ -273,6 +285,24 @@ public class BatonFabric implements Fabric {
 
     @Override
     public void download(NodeId node, String remotePath, Path localDest) {
+        if (isLocalNode(node)) {
+            try {
+                String expanded = remotePath;
+                if (expanded.startsWith("angela-root://")) {
+                    String angelaRoot = System.getProperty("angela.rootDir",
+                            System.getProperty("user.home") + "/.angela");
+                    expanded = angelaRoot + "/" + expanded.substring("angela-root://".length());
+                } else {
+                    expanded = expanded.replaceFirst("^~(/|$)", System.getProperty("user.home") + "/");
+                }
+                Path source = Path.of(expanded);
+                if (localDest.getParent() != null) Files.createDirectories(localDest.getParent());
+                Files.copy(source, localDest, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                throw new RuntimeException("Local download failed: " + e.getMessage(), e);
+            }
+            return;
+        }
         try {
             String url = "http://" + node.getHostname() + ":" + node.getPort()
                     + "/files?path=" + URLEncoder.encode(remotePath, StandardCharsets.UTF_8.name());
@@ -316,6 +346,32 @@ public class BatonFabric implements Fabric {
         // Remote agents that registered via /agent/register must NOT be treated
         // as local — they need HTTP dispatch.
         return localNodes.contains(node) || node.equals(localNodeId);
+    }
+
+    /**
+     * Returns the best routable IP address for the orchestrator HTTP server.
+     * Prefers a system property override ({@code baton.orchestrator.host}), then
+     * the first non-loopback, non-link-local IPv4 address found on any interface,
+     * falling back to {@code localhost}.
+     */
+    private static String resolveOrchestratorHost() {
+        String override = System.getProperty("baton.orchestrator.host");
+        if (override != null && !override.isEmpty()) return override;
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> ifaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (ifaces.hasMoreElements()) {
+                java.net.NetworkInterface iface = ifaces.nextElement();
+                if (!iface.isUp() || iface.isLoopback()) continue;
+                java.util.Enumeration<InetAddress> addrs = iface.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
+                    if (addr instanceof java.net.Inet4Address && !addr.isLoopbackAddress() && !addr.isLinkLocalAddress()) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return "localhost";
     }
 
     private static NodeId buildLocalNodeId(int port) {

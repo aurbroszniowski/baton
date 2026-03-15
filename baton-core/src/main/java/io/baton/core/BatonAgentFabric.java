@@ -93,8 +93,8 @@ public class BatonAgentFabric implements Fabric {
         // Register with orchestrator
         register();
 
-        // Start heartbeat
-        this.heartbeat = new HeartbeatReporter(orchestratorUrl, localNodeId, agentRunId);
+        // Start heartbeat — self-shutdown if orchestrator goes silent
+        this.heartbeat = new HeartbeatReporter(orchestratorUrl, localNodeId, agentRunId, this::close);
         this.heartbeat.start();
     }
 

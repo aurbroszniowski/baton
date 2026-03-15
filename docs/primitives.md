@@ -15,7 +15,7 @@ long v = c.get();                       // read current value
 long n = c.incrementAndGet();           // add 1, return new value
 long p = c.getAndIncrement();           // return old value, then add 1
 long x = c.getAndSet(99L);             // swap, return old value
-boolean ok = c.compareAndSet(99L, 0L); // CAS — returns true if swapped
+boolean ok = c.compareAndSet(99L, 0L); // CAS: returns true if swapped
 ```
 
 Same name → same counter:
@@ -61,7 +61,7 @@ count.set(42);
 
 ## DistributedBarrier
 
-Synchronises exactly `parties` threads (or jobs) before any of them proceeds. Works across threads in the same JVM or across remote agents — each party calls `await()` and blocks until all have arrived.
+Synchronises exactly `parties` threads (or jobs) before any of them proceeds. Works across threads in the same JVM or across remote agents: each party calls `await()` and blocks until all have arrived.
 
 ```java
 int parties = 3;
@@ -76,7 +76,7 @@ int index = gate.await(5, TimeUnit.SECONDS); // throws TimeoutException if not a
 
 The `TimeoutException` message contains how many parties arrived: `"Barrier timeout: 1/3 arrived"`.
 
-Barriers are **reusable** across generations — each time all parties arrive the generation advances and the barrier resets automatically.
+Barriers are **reusable** across generations: each time all parties arrive the generation advances and the barrier resets automatically.
 
 ---
 

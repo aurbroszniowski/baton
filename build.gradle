@@ -86,7 +86,8 @@ subprojects {
         signing {
             required {
                 gradle.taskGraph.allTasks.any { t ->
-                    t.name.toLowerCase().contains('publish') || t.name.toLowerCase().contains('sonatype')
+                    (t.name.toLowerCase().contains('publish') || t.name.toLowerCase().contains('sonatype')) &&
+                    !t.name.toLowerCase().contains('mavenlocal')
                 }
             }
 

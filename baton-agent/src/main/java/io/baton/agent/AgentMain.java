@@ -51,12 +51,25 @@ public class AgentMain {
         String name            = argOrDefault(args, "--name", "agent-" + port);
         String agentRunId      = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 
-        String hostname = InetAddress.getLocalHost().getHostName();
+        String hostnameArg = argOrDefault(args, "--hostname", null);
+        String hostname = (hostnameArg != null) ? hostnameArg : InetAddress.getLocalHost().getHostName();
         int    pid      = (int) ProcessHandle.current().pid();
 
         NodeId selfId = new NodeId(name, hostname, port, pid);
 
         System.out.printf("[baton-agent][%s][-] Starting %s -> orchestrator=%s%n", agentRunId, selfId, orchestratorUrl);
+
+        // Kill all child processes (TC server, config-tool, client JVMs, …) when this
+        // agent JVM exits — whether via graceful /shutdown, missed heartbeat, or crash.
+        // Without this, failed test runs leave orphaned server processes on the remote
+        // machine that interfere with subsequent runs.
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            ProcessHandle.current().descendants().forEach(child -> {
+                System.out.printf("[baton-agent][%s][-] Shutdown hook: killing child process %d%n",
+                        agentRunId, child.pid());
+                child.destroyForcibly();
+            });
+        }, "baton-agent-child-killer"));
 
         JobRunner runner = new JobRunner(orchestratorUrl, agentRunId);
 
@@ -71,11 +84,15 @@ public class AgentMain {
         // Register with orchestrator
         register(orchestratorUrl, selfId);
 
-        // Start heartbeat
-        HeartbeatReporter heartbeat = new HeartbeatReporter(orchestratorUrl, selfId, agentRunId);
+        // Start heartbeat — self-shutdown if orchestrator goes silent
+        HeartbeatReporter heartbeat = new HeartbeatReporter(orchestratorUrl, selfId, agentRunId, shutdown);
         heartbeat.start();
 
         System.out.printf("[baton-agent][%s][-] Ready on port %d%n", agentRunId, agentServer.getPort());
+
+        // Optional Angela integration: initialize AgentController if Angela is on the classpath.
+        // Done via reflection so baton-agent has no compile-time dependency on Angela.
+        initAngela(agentRunId, name, hostname, agentServer.getPort(), pid);
 
         // Block until shutdown
         synchronized (shutdownLock) {
@@ -85,6 +102,35 @@ public class AgentMain {
         System.out.printf("[baton-agent][%s][-] Shutting down%n", agentRunId);
         heartbeat.stop();
         agentServer.stop();
+    }
+
+    /**
+     * If Angela's agent-lib is on the classpath (it gets uploaded by AgentDeployer alongside
+     * the baton fat-jar), initialize Angela's AgentController so that Angela jobs can call
+     * AgentController.getInstance() on this remote node. Uses reflection to avoid a
+     * compile-time dependency on Angela in baton-agent.
+     */
+    private static void initAngela(String agentRunId, String name, String hostname, int port, int pid) {
+        try {
+            Class<?> agentIdClass      = Class.forName("org.terracotta.angela.agent.com.AgentID");
+            Class<?> portAllocIntf     = Class.forName("org.terracotta.angela.common.net.PortAllocator");
+            Class<?> portAllocClass    = Class.forName("org.terracotta.angela.common.net.DefaultPortAllocator");
+            Class<?> controllerClass   = Class.forName("org.terracotta.angela.agent.AgentController");
+
+            Object agentId     = agentIdClass.getConstructor(String.class, String.class, int.class, int.class)
+                                             .newInstance(name, hostname, port, pid);
+            Object portAlloc   = portAllocClass.getConstructor().newInstance();
+            Object controller  = controllerClass.getConstructor(agentIdClass, portAllocIntf)
+                                                .newInstance(agentId, portAlloc);
+            controllerClass.getMethod("setUniqueInstance", controllerClass).invoke(null, controller);
+
+            System.out.printf("[baton-agent][%s][-] Angela AgentController initialized%n", agentRunId);
+        } catch (ClassNotFoundException ignored) {
+            // Angela not on classpath — pure baton mode, nothing to do
+        } catch (Exception e) {
+            System.err.printf("[baton-agent][%s][-] WARNING: Angela AgentController init failed: %s%n",
+                              agentRunId, e);
+        }
     }
 
     private static void register(String orchestratorUrl, NodeId selfId) throws IOException {

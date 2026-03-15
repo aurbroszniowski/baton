@@ -1,6 +1,6 @@
 # SSH Deployment
 
-SSH deployment is built into `baton-core`. The `AgentDeployer` and `SshAgentLauncher` classes ship the `baton-agent` fat JAR to remote hosts and start agents automatically — no extra dependency required.
+SSH deployment is built into `baton-core`. The `AgentDeployer` and `SshAgentLauncher` classes ship the `baton-agent` fat JAR to remote hosts and start agents automatically, no extra dependency required.
 
 ---
 
@@ -59,7 +59,7 @@ NodeId remote = deployer.deploy(
     "http://orchestrator.example.com:9400"   // your orchestrator URL
 );
 
-// remote is now reachable on its /health endpoint — run jobs on it
+// remote is now reachable on its /health endpoint, run jobs on it
 Future<String> f = fabric.executeAsync(remote, () ->
     InetAddress.getLocalHost().getHostName()
 );
@@ -75,7 +75,7 @@ deployer.stop(remote);
 
 `Fabric` exposes a convenience wrapper that internally delegates to the `AgentLauncher` SPI (resolved via `ServiceLoader`). `SshAgentLauncher` is registered automatically.
 
-The agent fat JAR is embedded inside `baton-core` and extracted to a temporary file automatically — no manual download or system property required:
+The agent fat JAR is embedded inside `baton-core` and extracted to a temporary file automatically: no manual download or system property required:
 
 ```java
 try (Fabric fabric = FabricFactory.create(9400)) {

@@ -1,24 +1,24 @@
 # Job Execution
 
-Baton lets you execute lambdas on any connected node — local or remote. The orchestrator serialises the lambda together with the class bytes it needs, ships everything to the target agent over HTTP, and resolves the `Future` when the agent POSTs the result back.
+Baton lets you execute lambdas on any connected node: local or remote. The orchestrator serialises the lambda together with the class bytes it needs, ships everything to the target agent over HTTP, and resolves the `Future` when the agent POSTs the result back.
 
 ---
 
 ## Local workers
 
-`fabric.connectLocal()` adds a worker that runs in the same JVM using a cached thread pool. No serialisation occurs — useful for testing or for parallelising CPU-bound work without extra processes.
+`fabric.connectLocal()` adds a worker that runs in the same JVM using a cached thread pool. No serialization occurs: useful for testing or for parallelising CPU-bound work without extra processes.
 
 ```java
 try (Fabric fabric = FabricFactory.create(0)) {
     NodeId worker = fabric.connectLocal();
 
-    // Runnable — ignores return value
+    // Runnable: ignores return value
     Future<Void> f = fabric.executeAsync(worker, () -> {
         System.out.println("running on worker thread");
     });
     f.get(); // wait for completion
 
-    // Callable — returns a value
+    // Callable: returns a value
     Future<Integer> result = fabric.executeAsync(worker, () -> 6 * 7);
     System.out.println(result.get()); // 42
 }
@@ -53,13 +53,13 @@ Future<String> f = fabric.executeAsync(remote, () -> {
 System.out.println(f.get()); // prints the remote host name
 ```
 
-**Captured variables** must be `Serializable`. Distributed primitives obtained from `fabric.counter(...)` etc. in HTTP mode are already serialisable HTTP proxies and can be safely captured:
+**Captured variables** must be `Serializable`. Distributed primitives obtained from `fabric.counter(...)` etc. in HTTP mode are already serializable HTTP proxies and can be safely captured:
 
 ```java
 DistributedCounter counter = fabric.counter("hits", 0L);
 
 Future<Void> f = fabric.executeAsync(remote, () -> {
-    // counter is an HttpCounterProxy — serialisable, calls back to orchestrator
+    // counter is an HttpCounterProxy: serializable, calls back to orchestrator
     counter.incrementAndGet();
 });
 f.get();

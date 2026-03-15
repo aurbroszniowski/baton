@@ -21,11 +21,15 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -96,33 +100,72 @@ public class AgentServer {
     private void handleFiles(HttpExchange ex) throws IOException {
         String query = ex.getRequestURI().getQuery();
         String remotePath = null;
+        String modeParam = null;
         if (query != null) {
             for (String param : query.split("&")) {
                 if (param.startsWith("path=")) {
                     remotePath = URLDecoder.decode(param.substring(5), StandardCharsets.UTF_8.name());
-                    break;
+                } else if (param.startsWith("mode=")) {
+                    modeParam = param.substring(5);
                 }
             }
         }
         if (remotePath == null) { sendStatus(ex, 400); return; }
 
-        Path path = Path.of(remotePath.replaceFirst("^~", System.getProperty("user.home")));
+        Path path;
+        if (remotePath.startsWith("angela-root://")) {
+            String angelaRoot = System.getProperty("angela.rootDir",
+                    System.getProperty("user.home") + "/.angela");
+            path = Path.of(angelaRoot).resolve(remotePath.substring("angela-root://".length()));
+        } else {
+            path = Path.of(remotePath.replaceFirst("^~", System.getProperty("user.home")));
+        }
 
         String method = ex.getRequestMethod().toUpperCase();
         if ("POST".equals(method)) {
             if (path.getParent() != null) Files.createDirectories(path.getParent());
-            byte[] bytes = readBodyBytes(ex);
-            Files.write(path, bytes);
+            try (InputStream in = ex.getRequestBody();
+                 OutputStream out = Files.newOutputStream(path)) {
+                pipe(in, out);
+            }
+            if (modeParam != null) {
+                try {
+                    Files.setPosixFilePermissions(path, intToPosix(Integer.parseInt(modeParam, 8)));
+                } catch (UnsupportedOperationException ignored) {}
+            }
             sendText(ex, 200, "ok");
         } else if ("GET".equals(method)) {
-            byte[] bytes = Files.readAllBytes(path);
+            long size = Files.size(path);
             ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
-            ex.sendResponseHeaders(200, bytes.length);
-            ex.getResponseBody().write(bytes);
+            ex.sendResponseHeaders(200, size);
+            try (InputStream in = Files.newInputStream(path);
+                 OutputStream out = ex.getResponseBody()) {
+                pipe(in, out);
+            }
             ex.close();
         } else {
             sendStatus(ex, 405);
         }
+    }
+
+    private static Set<PosixFilePermission> intToPosix(int mode) {
+        Set<PosixFilePermission> perms = EnumSet.noneOf(PosixFilePermission.class);
+        if ((mode & 0400) != 0) perms.add(PosixFilePermission.OWNER_READ);
+        if ((mode & 0200) != 0) perms.add(PosixFilePermission.OWNER_WRITE);
+        if ((mode & 0100) != 0) perms.add(PosixFilePermission.OWNER_EXECUTE);
+        if ((mode & 0040) != 0) perms.add(PosixFilePermission.GROUP_READ);
+        if ((mode & 0020) != 0) perms.add(PosixFilePermission.GROUP_WRITE);
+        if ((mode & 0010) != 0) perms.add(PosixFilePermission.GROUP_EXECUTE);
+        if ((mode & 0004) != 0) perms.add(PosixFilePermission.OTHERS_READ);
+        if ((mode & 0002) != 0) perms.add(PosixFilePermission.OTHERS_WRITE);
+        if ((mode & 0001) != 0) perms.add(PosixFilePermission.OTHERS_EXECUTE);
+        return perms;
+    }
+
+    private static void pipe(InputStream in, OutputStream out) throws IOException {
+        byte[] buf = new byte[64 * 1024];
+        int n;
+        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
     }
 
     private byte[] readBodyBytes(HttpExchange ex) throws IOException {

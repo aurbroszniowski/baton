@@ -17,7 +17,7 @@ This installs all published modules to `~/.m2/repository/io/github/aurbroszniows
 
 ## Add the dependency
 
-Only `baton-core` is needed — it declares `baton-api` as a transitive dependency.
+Only `baton-core` is needed: it declares `baton-api` as a transitive dependency.
 
 **Gradle:**
 ```groovy

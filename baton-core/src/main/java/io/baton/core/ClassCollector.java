@@ -56,13 +56,17 @@ class ClassCollector extends ObjectOutputStream {
     }
 
     void collectTransitively(Class<?> cl) {
-        if (cl == null || isBootstrap(cl) || !seen.add(cl.getName())) return;
+        if (cl == null || cl.isArray() || isBootstrap(cl) || !seen.add(cl.getName())) return;
 
         addClassBytes(cl);
         collectTransitively(cl.getSuperclass());
         for (Class<?> iface : cl.getInterfaces()) collectTransitively(iface);
         Class<?> enclosing = cl.getEnclosingClass();
         if (enclosing != null) collectTransitively(enclosing);
+        // Collect field types so that the remote JVM can link the class without CNFEs
+        for (java.lang.reflect.Field f : cl.getDeclaredFields()) {
+            collectTransitively(f.getType());
+        }
     }
 
     private void addClassBytes(Class<?> cl) {
@@ -87,9 +91,7 @@ class ClassCollector extends ObjectOutputStream {
                 || n.startsWith("javax.")
                 || n.startsWith("sun.")
                 || n.startsWith("jdk.")
-                || n.startsWith("com.sun.")
-                // Angela's own classes are already on the agent classpath
-                || n.startsWith("org.terracotta.angela.");
+                || n.startsWith("com.sun.");
     }
 
     Map<String, byte[]> getClassBytes() {
