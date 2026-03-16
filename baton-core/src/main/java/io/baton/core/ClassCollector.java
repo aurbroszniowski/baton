@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -64,7 +65,7 @@ class ClassCollector extends ObjectOutputStream {
         Class<?> enclosing = cl.getEnclosingClass();
         if (enclosing != null) collectTransitively(enclosing);
         // Collect field types so that the remote JVM can link the class without CNFEs
-        for (java.lang.reflect.Field f : cl.getDeclaredFields()) {
+        for (Field f : cl.getDeclaredFields()) {
             collectTransitively(f.getType());
         }
     }

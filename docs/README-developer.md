@@ -218,6 +218,76 @@ POST /agent/result/{jobId}?exception=true|false
 
 That is the full remote execution loop.
 
+### Logging functionality and application impact
+
+Baton now has a dedicated remote log relay path. The important design point is
+that logging is treated as best-effort observability, not as part of job
+correctness.
+
+The logging flow is:
+
+1. The agent collects log lines locally.
+2. `LogRelayClient` batches them and POSTs them to the orchestrator at `/agent/logs`.
+3. `BatonServer` forwards them to `LogCollector`.
+4. `LogCollector` writes them to the active `LogSink` which defaults to structured
+   orchestrator stdout output.
+
+Records are tagged with:
+
+1. `nodeId`
+2. `jobId`
+3. `source`
+4. `label`
+5. `stream`
+
+The default rendered format is:
+
+```text
+[{nodeTag}][{jobId}][{tag}] {line}
+```
+
+For an application using Baton, the practical behavior is:
+
+1. Remote `System.out` and `System.err` output is captured automatically in the
+   fat-jar agent path because `AgentMain` installs `SystemStreamCapture`.
+2. Child processes started inside a Baton job can be connected to the relay via
+   `BatonAgentRuntime.attachProcess(process, label)`.
+3. Framework logging can be integrated without Baton depending on a specific
+   logging library by using `RemoteInitializer` plus either:
+   `BatonRuntime.emit(...)` directly, or a framework-specific bridge such as
+   `JulRelayHandler`.
+4. `RemoteExecutionContext` provides the current `jobId` and `nodeId` during job
+   execution, so application code and adapters do not need to thread those values
+   through every call manually.
+
+This changes the experience of using Baton in an important way:
+
+1. An application no longer needs to SSH to the remote host to inspect basic job
+   output.
+2. Logs from code running in remote jobs can be correlated back to the Baton job
+   that produced them.
+3. Framework integrations stay opt-in and framework-owned. Baton provides the
+   seam, but the application or adapter is still responsible for installing the
+   right appender or handler for SLF4J, logback, log4j, or any other stack.
+
+There are two boundaries to keep in mind when maintaining or integrating this:
+
+1. Logging must never fail a job. If the orchestrator is unavailable or the relay
+   queue fills up, Baton may drop log lines, but it must not change the success or
+   failure semantics of the remote callable/runnable.
+2. The in-process `BatonAgentFabric` path installs `BatonRuntime`, so
+   `BatonRuntime.emit(...)` works there too, but the `System.out/err` tee capture
+   is only installed by `AgentMain`. That means automatic stdout/stderr capture is
+   strongest in the real remote-agent path, while explicit runtime emission works
+   in both paths.
+
+If you are integrating an application framework with Baton, the usual pattern is:
+
+1. Register a `RemoteInitializer` in `META-INF/services/io.baton.RemoteInitializer`.
+2. In `initialize(...)`, install your logging bridge or framework static state.
+3. Use `BatonRuntime.emit(...)` for in-JVM logs and `BatonAgentRuntime.attachProcess(...)`
+   for spawned child processes.
+
 ## 7. Why the lambda shipping works
 
 If you are maintaining Baton, you need to understand exactly what is and is not guaranteed by the lambda shipping mechanism.

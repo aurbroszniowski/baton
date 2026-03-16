@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit;
 public class HeartbeatReporter {
 
     private static final long INTERVAL_MS  = 5_000;
-    private static final int  MAX_MISSED   = 3; // 15 s of silence → self-shutdown
+    private static final int  MAX_MISSED   = 3; // 15 s of silence -> self-shutdown
 
     private final String    orchestratorUrl;
     private final NodeId    selfId;

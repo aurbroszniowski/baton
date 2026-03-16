@@ -18,7 +18,7 @@ long x = c.getAndSet(99L);             // swap, return old value
 boolean ok = c.compareAndSet(99L, 0L); // CAS: returns true if swapped
 ```
 
-Same name → same counter:
+Same name -> same counter:
 ```java
 DistributedCounter a = fabric.counter("shared", 0L);
 DistributedCounter b = fabric.counter("shared", 0L); // same underlying counter

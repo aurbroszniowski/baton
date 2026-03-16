@@ -15,6 +15,8 @@
  */
 package io.baton.core;
 
+import io.baton.AgentLogRelay;
+import io.baton.BatonRuntime;
 import io.baton.DistributedBarrier;
 import io.baton.DistributedBoolean;
 import io.baton.DistributedCounter;
@@ -23,10 +25,12 @@ import io.baton.DistributedReference;
 import io.baton.Fabric;
 import io.baton.NodeId;
 import io.baton.RemoteCallable;
+import io.baton.RemoteExecutionContext;
 import io.baton.RemoteRunnable;
 import io.baton.SshConfig;
 
 import java.io.IOException;
+import java.io.File;
 import java.io.OutputStream;
 import java.io.Serializable;
 import java.net.HttpURLConnection;
@@ -80,7 +84,11 @@ public class BatonAgentFabric implements Fabric {
         catch (UnknownHostException e) { hostname = "localhost"; }
         int pid = (int) ProcessHandle.current().pid();
 
-        JobRunner runner = new JobRunner(orchestratorUrl, agentRunId);
+        // Build a provisional NodeId for execution-context tagging. If agentPort==0
+        // the actual port is known only after AgentServer binds; the context tag will
+        // show port=0 in that case, which is acceptable for log correlation.
+        NodeId provisionalId = new NodeId(agentName, hostname, agentPort, pid);
+        JobRunner runner = new JobRunner(orchestratorUrl, agentRunId, provisionalId.toString());
 
         Object shutdownLock = new Object();
         this.agentServer = new AgentServer(agentPort, runner, () -> {
@@ -89,6 +97,17 @@ public class BatonAgentFabric implements Fabric {
 
         int actualPort = this.agentServer.getPort();
         this.localNodeId = new NodeId(agentName, hostname, actualPort, pid);
+
+        // Install an inline relay so BatonRuntime.emit() works for in-process jobs.
+        // Logs are printed locally (structured format) since this agent runs in the
+        // same JVM as the orchestrator — no HTTP round-trip needed.
+        final NodeId nodeId = this.localNodeId;
+        BatonRuntime.install((source, label, stream, line) -> {
+            String raw  = RemoteExecutionContext.jobId();
+            String job  = PrintingLogSink.abbreviate(raw != null ? raw : "-");
+            String tag  = label != null && !"-".equals(label) ? label : "-";
+            System.out.printf("[%s][%s][%s] %s%n", nodeId.toLogTag(), job, tag, line);
+        });
 
         // Register with orchestrator
         register();
@@ -161,10 +180,10 @@ public class BatonAgentFabric implements Fabric {
         if (Files.isDirectory(localPath)) {
             try (var stream = Files.walk(localPath)) {
                 stream.filter(Files::isRegularFile).forEach(file -> {
-                    String rel = localPath.relativize(file).toString().replace(java.io.File.separatorChar, '/');
+                    String rel = localPath.relativize(file).toString().replace(File.separatorChar, '/');
                     upload(node, file, remotePath + "/" + rel);
                 });
-            } catch (java.io.IOException e) {
+            } catch (IOException e) {
                 throw new RuntimeException("Upload directory failed: " + e.getMessage(), e);
             }
             return;
@@ -173,7 +192,7 @@ public class BatonAgentFabric implements Fabric {
             Path target = Path.of(remotePath.replaceFirst("^~(/|$)", System.getProperty("user.home") + "/"));
             if (target.getParent() != null) Files.createDirectories(target.getParent());
             Files.copy(localPath, target, StandardCopyOption.REPLACE_EXISTING);
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             throw new RuntimeException("Local upload failed: " + e.getMessage(), e);
         }
     }
@@ -184,7 +203,7 @@ public class BatonAgentFabric implements Fabric {
             Path source = Path.of(remotePath.replaceFirst("^~(/|$)", System.getProperty("user.home") + "/"));
             if (localDest.getParent() != null) Files.createDirectories(localDest.getParent());
             Files.copy(source, localDest, StandardCopyOption.REPLACE_EXISTING);
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             throw new RuntimeException("Local download failed: " + e.getMessage(), e);
         }
     }
@@ -194,6 +213,7 @@ public class BatonAgentFabric implements Fabric {
         if (!closed.compareAndSet(false, true)) return;
         heartbeat.stop();
         agentServer.stop();
+        BatonRuntime.install(AgentLogRelay.NOOP);
     }
 
     private void register() throws IOException {

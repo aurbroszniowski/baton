@@ -57,8 +57,20 @@ public final class NodeId implements Serializable {
         return Objects.hash(name, hostname, port, pid);
     }
 
+    /**
+     * Returns the canonical string representation used for HTTP headers and
+     * internal correlation: {@code name@hostname:port#pid}.
+     */
     @Override
     public String toString() {
         return name + "@" + hostname + ":" + port + "#" + pid;
+    }
+
+    /**
+     * Returns a compact, human-readable log prefix: {@code baton-name@hostname#pid}.
+     * The port is omitted because it is already encoded in the name (e.g. {@code agent-8700}).
+     */
+    public String toLogTag() {
+        return "baton-" + name + "@" + hostname + "#" + pid;
     }
 }

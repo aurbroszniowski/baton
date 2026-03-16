@@ -28,16 +28,19 @@ import io.baton.RemoteRunnable;
 import io.baton.SshConfig;
 
 import java.io.IOException;
+import java.io.File;
 import java.io.Serializable;
+import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.stream.Stream;
 import java.util.Collection;
+import java.util.Enumeration;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.UUID;
@@ -46,6 +49,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 /**
  * Main {@link Fabric} implementation.
@@ -67,6 +71,7 @@ public class BatonFabric implements Fabric {
     private final QueueStore         queues      = new QueueStore();
     private final AgentRegistry      registry    = new AgentRegistry();
     private final JobDispatcher      dispatcher  = new JobDispatcher();
+    private final LogCollector       logCollector = new LogCollector(new PrintingLogSink(System.out));
     private final ExecutorService    localPool   = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "baton-local-worker");
         t.setDaemon(true);
@@ -91,7 +96,7 @@ public class BatonFabric implements Fabric {
         String      url = null;
         if (orchestratorPort >= 0) { // -1 = local-only mode, no HTTP server
             try {
-                s   = new BatonServer(primitives, barriers, queues, registry, dispatcher, orchestratorPort);
+                s   = new BatonServer(primitives, barriers, queues, registry, dispatcher, logCollector, orchestratorPort);
                 url = "http://" + resolveOrchestratorHost() + ":" + s.getPort();
             } catch (IOException e) {
                 System.err.printf("[baton][%s][-] WARNING: could not start HTTP server — %s%n", runId, e.getMessage());
@@ -114,6 +119,24 @@ public class BatonFabric implements Fabric {
     /** Returns the actual orchestrator port (useful when started with port 0), or -1 in local mode. */
     public int getOrchestratorPort() {
         return server != null ? server.getPort() : -1;
+    }
+
+    /**
+     * Replace the log sink used to output remote agent log lines.
+     * The default sink prints structured lines to {@code System.out}.
+     */
+    public void setLogSink(LogSink sink) {
+        logCollector.setSink(sink);
+    }
+
+    /**
+     * Enable ANSI colour on the default {@link PrintingLogSink}.
+     * No-op if the sink has been replaced with a custom one.
+     */
+    public void enableAnsiColour() {
+        logCollector.mapSink(s -> s instanceof PrintingLogSink
+                ? ((PrintingLogSink) s).withAnsi()
+                : s);
     }
 
     @Override
@@ -248,7 +271,7 @@ public class BatonFabric implements Fabric {
         if (Files.isDirectory(localPath)) {
             try (Stream<Path> stream = Files.walk(localPath)) {
                 stream.filter(Files::isRegularFile).forEach(file -> {
-                    String rel = localPath.relativize(file).toString().replace(java.io.File.separatorChar, '/');
+                    String rel = localPath.relativize(file).toString().replace(File.separatorChar, '/');
                     upload(node, file, remotePath + "/" + rel);
                 });
             } catch (IOException e) {
@@ -358,14 +381,14 @@ public class BatonFabric implements Fabric {
         String override = System.getProperty("baton.orchestrator.host");
         if (override != null && !override.isEmpty()) return override;
         try {
-            java.util.Enumeration<java.net.NetworkInterface> ifaces = java.net.NetworkInterface.getNetworkInterfaces();
+            Enumeration<NetworkInterface> ifaces = NetworkInterface.getNetworkInterfaces();
             while (ifaces.hasMoreElements()) {
-                java.net.NetworkInterface iface = ifaces.nextElement();
+                NetworkInterface iface = ifaces.nextElement();
                 if (!iface.isUp() || iface.isLoopback()) continue;
-                java.util.Enumeration<InetAddress> addrs = iface.getInetAddresses();
+                Enumeration<InetAddress> addrs = iface.getInetAddresses();
                 while (addrs.hasMoreElements()) {
                     InetAddress addr = addrs.nextElement();
-                    if (addr instanceof java.net.Inet4Address && !addr.isLoopbackAddress() && !addr.isLinkLocalAddress()) {
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress() && !addr.isLinkLocalAddress()) {
                         return addr.getHostAddress();
                     }
                 }

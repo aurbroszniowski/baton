@@ -17,6 +17,8 @@ package io.baton.core;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.baton.DistributedBoolean;
+import io.baton.DistributedCounter;
 import io.baton.DistributedQueue;
 import io.baton.DistributedReference;
 import io.baton.NodeId;
@@ -31,8 +33,10 @@ import java.io.Serializable;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * The orchestrator's HTTP server.
@@ -71,16 +75,19 @@ class BatonServer {
     private final QueueStore         queues;
     private final AgentRegistry      registry;
     private final JobDispatcher      dispatcher;
+    private final LogCollector       logCollector;
     private final int                port;
 
     BatonServer(PrimitivesStore primitives, BarrierCoordinator barriers,
                     QueueStore queues, AgentRegistry registry,
-                    JobDispatcher dispatcher, int requestedPort) throws IOException {
-        this.primitives  = primitives;
-        this.barriers    = barriers;
-        this.queues      = queues;
-        this.registry    = registry;
-        this.dispatcher  = dispatcher;
+                    JobDispatcher dispatcher, LogCollector logCollector,
+                    int requestedPort) throws IOException {
+        this.primitives   = primitives;
+        this.barriers     = barriers;
+        this.queues       = queues;
+        this.registry     = registry;
+        this.dispatcher   = dispatcher;
+        this.logCollector = logCollector;
 
         server = HttpServer.create(new InetSocketAddress(requestedPort), 0);
         port   = server.getAddress().getPort();
@@ -95,6 +102,7 @@ class BatonServer {
         server.createContext("/agent/register",  this::handleAgentRegister);
         server.createContext("/agent/heartbeat", this::handleAgentHeartbeat);
         server.createContext("/agent/result/",   this::handleJobResult);
+        server.createContext("/agent/logs",      this::handleLogs);
         server.createContext("/primitive/counter/",   this::handleCounter);
         server.createContext("/primitive/boolean/",   this::handleBoolean);
         server.createContext("/primitive/reference/", this::handleReference);
@@ -138,6 +146,25 @@ class BatonServer {
         sendText(ex, 200, "OK");
     }
 
+    // ── /agent/logs ───────────────────────────────────────────────────────────
+
+    private void handleLogs(HttpExchange ex) throws IOException {
+        if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
+        String nodeId = header(ex, "X-Node-Id", "-");
+        String jobId  = header(ex, "X-Job-Id",  "-");
+        String source = header(ex, "X-Source",  "-");
+        String label  = header(ex, "X-Label",   "-");
+        String stream = header(ex, "X-Stream",  "-");
+        String body = readBody(ex);
+        for (String line : body.split("\n")) {
+            String trimmed = line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
+            if (!trimmed.isEmpty()) {
+                logCollector.collect(new LogRecord(nodeId, jobId, source, label, stream, trimmed));
+            }
+        }
+        sendText(ex, 200, "OK");
+    }
+
     // ── /primitive/counter/* ──────────────────────────────────────────────────
 
     private void handleCounter(HttpExchange ex) throws IOException {
@@ -148,7 +175,7 @@ class BatonServer {
         String name = segs[3];
         String op   = segs[4];
         long init   = queryLong(ex, "init", 0L);
-        io.baton.DistributedCounter c = primitives.getOrCreateCounter(name, init);
+        DistributedCounter c = primitives.getOrCreateCounter(name, init);
         String result;
         switch (op) {
             case "get":           result = Long.toString(c.get());              break;
@@ -171,7 +198,7 @@ class BatonServer {
         String name = segs[3];
         String op   = segs[4];
         boolean init = queryBool(ex, "init", false);
-        io.baton.DistributedBoolean b = primitives.getOrCreateBoolean(name, init);
+        DistributedBoolean b = primitives.getOrCreateBoolean(name, init);
         String result;
         switch (op) {
             case "get":       result = Boolean.toString(b.get());              break;
@@ -259,7 +286,7 @@ class BatonServer {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             sendText(ex, 503, "interrupted");
-        } catch (java.util.concurrent.TimeoutException e) {
+        } catch (TimeoutException e) {
             sendText(ex, 408, e.getMessage() != null ? e.getMessage() : "timeout");
         }
     }
@@ -379,5 +406,10 @@ class BatonServer {
             if (kv.startsWith(param + "=")) return Boolean.parseBoolean(kv.substring(param.length() + 1));
         }
         return defaultValue;
+    }
+
+    private String header(HttpExchange ex, String name, String defaultValue) {
+        List<String> values = ex.getRequestHeaders().get(name);
+        return (values != null && !values.isEmpty()) ? values.get(0) : defaultValue;
     }
 }

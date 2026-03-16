@@ -17,8 +17,10 @@ package io.baton.core;
 
 import io.baton.DistributedReference;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.Base64;
@@ -48,8 +50,7 @@ public class HttpReferenceProxy<T extends Serializable> implements DistributedRe
         try {
             String b64 = OrchestratorHttp.get(baseUrl + "/primitive/reference/" + name + "/get");
             byte[] bytes = Base64.getDecoder().decode(b64);
-            try (java.io.ObjectInputStream ois =
-                         new java.io.ObjectInputStream(new java.io.ByteArrayInputStream(bytes))) {
+            try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
                 return (T) ois.readObject();
             }
         } catch (IOException | ClassNotFoundException e) {

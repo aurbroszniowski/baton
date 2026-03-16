@@ -17,6 +17,7 @@ package io.baton.agent;
 
 import io.baton.ClassBundle;
 import io.baton.RemoteCallable;
+import io.baton.RemoteExecutionContext;
 import io.baton.RemoteRunnable;
 
 import java.io.ByteArrayInputStream;
@@ -39,15 +40,17 @@ public class JobRunner {
 
     private final String orchestratorUrl;
     private final String agentRunId;
+    private final String nodeId;
     private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "baton-job-runner");
         t.setDaemon(true);
         return t;
     });
 
-    public JobRunner(String orchestratorUrl, String agentRunId) {
+    public JobRunner(String orchestratorUrl, String agentRunId, String nodeId) {
         this.orchestratorUrl = orchestratorUrl;
-        this.agentRunId       = agentRunId;
+        this.agentRunId      = agentRunId;
+        this.nodeId          = nodeId;
     }
 
     public void accept(byte[] payload) {
@@ -59,7 +62,13 @@ public class JobRunner {
                 ClassBundle bundle = (ClassBundle) ois.readObject();
 
                 System.out.printf("[baton-agent][%s][%s] Running job%n", agentRunId, jobId);
-                Object result = execute(bundle);
+                RemoteExecutionContext.set(nodeId, jobId);
+                Object result;
+                try {
+                    result = execute(bundle);
+                } finally {
+                    RemoteExecutionContext.clear();
+                }
                 System.out.printf("[baton-agent][%s][%s] Job completed successfully%n", agentRunId, jobId);
                 postResult(jobId, serialize(result), false);
             } catch (Throwable t) {
@@ -80,7 +89,7 @@ public class JobRunner {
 
         ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bundle.lambda)) {
             @Override
-            protected Class<?> resolveClass(ObjectStreamClass desc) throws ClassNotFoundException, java.io.IOException {
+            protected Class<?> resolveClass(ObjectStreamClass desc) throws ClassNotFoundException, IOException {
                 try {
                     return loader.loadClass(desc.getName());
                 } catch (ClassNotFoundException e) {

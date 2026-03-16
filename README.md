@@ -4,6 +4,8 @@
 
 It was built as a drop-in replacement for Apache Ignite inside the [Angela](https://github.com/Terracotta-OSS/angela) distributed test infrastructure.
 
+**If you don't want to read the docs** and just want to start using it, check the [Quick start section](#quick-start).
+
 **If you are a developer** and want to have guidance on the codebase check [README-developer.md](docs/README-developer.md)
 
 ---
@@ -120,13 +122,13 @@ dependencies {
 ### Distributed primitives
 
 ```java
-// port 0 → OS picks a free port; use -1 for a pure in-process fabric (no HTTP server)
+// port 0 -> OS picks a free port; use -1 for a pure in-process fabric (no HTTP server)
 try (Fabric fabric = FabricFactory.create(0)) {
 
     // Counter
     DistributedCounter hits = fabric.counter("hits", 0L);
-    hits.incrementAndGet();                  // → 1
-    hits.compareAndSet(1L, 42L);            // → true
+    hits.incrementAndGet();                  // -> 1
+    hits.compareAndSet(1L, 42L);            // -> true
 
     // Boolean
     DistributedBoolean ready = fabric.bool("ready", false);

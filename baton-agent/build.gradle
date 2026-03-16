@@ -1,6 +1,7 @@
 dependencies {
     implementation project(':baton-api')
     testImplementation project(':baton-api')
+    testImplementation project(':baton-core')
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
 }
 

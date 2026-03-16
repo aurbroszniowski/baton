@@ -18,6 +18,7 @@ package io.baton.agent;
 import io.baton.DistributedCounter;
 import io.baton.NodeId;
 import io.baton.core.BatonFabric;
+import io.baton.RemoteExecutionContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -138,6 +139,57 @@ class TwoProcessIT {
         });
 
         assertThrows(ExecutionException.class, () -> f.get(10, TimeUnit.SECONDS));
+    }
+
+    // ── Phase 4 — RemoteExecutionContext ──────────────────────────────────────
+
+    @Test
+    void remoteCallable_contextIsSetDuringExecution() throws Exception {
+        NodeId agent = startAndAwaitAgent("ctx-set-agent");
+
+        @SuppressWarnings("unchecked")
+        Future<String> f = (Future<String>) (Future<?>) fabric.executeAsync(agent, () ->
+                RemoteExecutionContext.jobId());
+
+        String jobId = f.get(10, TimeUnit.SECONDS);
+        assertNotNull(jobId, "RemoteExecutionContext.jobId() must not be null during execution");
+        assertFalse(jobId.isEmpty(), "jobId must not be empty during execution");
+    }
+
+    @Test
+    void remoteCallable_contextIsClearedBetweenJobs() throws Exception {
+        NodeId agent = startAndAwaitAgent("ctx-clear-agent");
+
+        // Two sequential jobs should each see their own distinct jobId
+        @SuppressWarnings("unchecked")
+        Future<String> f1 = (Future<String>) (Future<?>) fabric.executeAsync(agent, () ->
+                RemoteExecutionContext.jobId());
+        String jobId1 = f1.get(10, TimeUnit.SECONDS);
+
+        @SuppressWarnings("unchecked")
+        Future<String> f2 = (Future<String>) (Future<?>) fabric.executeAsync(agent, () ->
+                RemoteExecutionContext.jobId());
+        String jobId2 = f2.get(10, TimeUnit.SECONDS);
+
+        assertNotNull(jobId1);
+        assertNotNull(jobId2);
+        assertNotEquals(jobId1, jobId2,
+                "Each job must see its own unique jobId — not a stale value from a previous job");
+    }
+
+    @Test
+    void remoteCallable_nodeIdMatchesAgentIdentity() throws Exception {
+        NodeId agent = startAndAwaitAgent("nodeid-agent");
+
+        @SuppressWarnings("unchecked")
+        Future<String> f = (Future<String>) (Future<?>) fabric.executeAsync(agent, () ->
+                RemoteExecutionContext.nodeId());
+
+        String nodeId = f.get(10, TimeUnit.SECONDS);
+        assertNotNull(nodeId, "nodeId must not be null during execution");
+        // The nodeId should contain the agent's name
+        assertTrue(nodeId.contains("nodeid-agent"),
+                "nodeId '" + nodeId + "' should contain the agent name 'nodeid-agent'");
     }
 
     // ── Phase 6 — agent cleanup on Fabric.close() ─────────────────────────────

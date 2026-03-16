@@ -18,7 +18,9 @@ package io.baton.core;
 import io.baton.DistributedBarrier;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
@@ -94,7 +96,7 @@ public class HttpBarrierProxy implements DistributedBarrier {
             if (code == 408) {
                 String detail = "";
                 try {
-                    java.io.InputStream err = conn.getErrorStream();
+                    InputStream err = conn.getErrorStream();
                     if (err != null) detail = new String(err.readAllBytes(), StandardCharsets.UTF_8).trim();
                 } catch (IOException ignored) {}
                 throw new TimeoutException(detail.isEmpty() ? "Barrier await timed out: " + name : detail);
@@ -106,7 +108,7 @@ public class HttpBarrierProxy implements DistributedBarrier {
             // Advance generation: only one thread wins the CAS, others are no-ops
             generation.compareAndSet(gen, gen + 1);
             return index;
-        } catch (java.net.SocketTimeoutException e) {
+        } catch (SocketTimeoutException e) {
             throw new TimeoutException("Barrier await timed out (socket): " + name);
         } catch (IOException e) {
             if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
