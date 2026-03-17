@@ -204,7 +204,6 @@ try (Fabric fabric = FabricFactory.create(0)) {
 ## Documentation
 
 - [README-developer.md](docs/README-developer.md): Guidance for contributors
-- [Getting Started](docs/getting-started.md): installation, first fabric, running tests
 - [Distributed Primitives](docs/primitives.md): full API for counter, boolean, reference, queue, barrier
 - [Job Execution](docs/jobs.md): local and remote lambda dispatch, exception handling
 - [SSH Deployment](docs/deployment.md): deploying agents on remote hosts
