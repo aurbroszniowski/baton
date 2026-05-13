@@ -59,8 +59,8 @@ back to the next snapshot.
 ### 1. Decide versions
 
 ```bash
-export RELEASE_VERSION=1.0.0
-export NEXT_VERSION=1.0.1-SNAPSHOT
+export RELEASE_VERSION=1.0.3
+export NEXT_VERSION=1.0.4-SNAPSHOT
 ```
 
 ### 2. Local preflight
@@ -81,7 +81,7 @@ contains `name`, `description`, `url`, `licenses`, `developers`, and `scm`.
 Edit `gradle.properties`:
 
 ```properties
-version=1.0.0
+version=1.0.3
 ```
 
 ```bash
