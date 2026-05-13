@@ -88,7 +88,7 @@ class BarrierCoordinator {
         }
     }
 
-    // ── Inner types ────────────────────────────────────────────────────────────
+    // Inner types 
 
     private static final class BarrierState {
         final int    parties;

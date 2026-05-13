@@ -17,19 +17,19 @@ It was built as a drop-in replacement for Apache Ignite inside the [Angela](http
         - Use Distributed primitives (CyclicBarrier, AtomicReference, etc.)
                 ▼
                 │  JAVA
-       ┌────────┴────────┐
+       ┌┴┐
        │ BATON JAVA API  │
- ┌──────                 ──────────────────┐
+ ┌                ┐
  │       Orchestrator JVM                  │
  │                                         │
- │  BatonFabric  ──►  HTTP Server          │
+ │  BatonFabric  ►  HTTP Server          │
  │     │               (holds all state)   │
  │     │                                   │
  │  counter / boolean / reference          │
  │  barrier / queue                        │
- └──────────────┬──────────────────────────┘
+ └┬┘
                 │  HTTP
-        ┌───────┴────────┐
+        ┌┴┐
         ▼                ▼
   Agent JVM A      Agent JVM B
   (remote)         (remote)

@@ -86,7 +86,7 @@ public class HttpQueueProxy<T extends Serializable> implements DistributedQueue<
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     private byte[] serialize(Object obj) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();

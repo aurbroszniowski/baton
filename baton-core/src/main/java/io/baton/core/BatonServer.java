@@ -45,9 +45,9 @@ import java.util.concurrent.TimeoutException;
  * back to these endpoints.
  *
  * <pre>
- * POST /agent/register                     ← agent startup notification
- * POST /agent/heartbeat                    ← keepalive (every 5 s)
- * POST /agent/result/{jobId}               ← job completion callback
+ * POST /agent/register                     <- agent startup notification
+ * POST /agent/heartbeat                    <- keepalive (every 5 s)
+ * POST /agent/result/{jobId}               <- job completion callback
  *
  * GET  /primitive/counter/{name}/get
  * POST /primitive/counter/{name}/increment
@@ -58,13 +58,13 @@ import java.util.concurrent.TimeoutException;
  * POST /primitive/boolean/{name}/set?value={v}
  * POST /primitive/boolean/{name}/cas?expect={e}&update={u}
  *
- * GET  /primitive/reference/{name}/get     ← base64-encoded serialized value
- * POST /primitive/reference/{name}/set     ← binary body = serialized value
+ * GET  /primitive/reference/{name}/get     <- base64-encoded serialized value
+ * POST /primitive/reference/{name}/set     <- binary body = serialized value
  *
- * POST /barrier/{name}/arrive?count={N}&nodeId={id}&generation={g}   ← long-poll
+ * POST /barrier/{name}/arrive?count={N}&nodeId={id}&generation={g}   <- long-poll
  *
- * POST /transfer/{queueId}/push            ← binary body
- * GET  /transfer/{queueId}/pop             ← long-poll, binary body
+ * POST /transfer/{queueId}/push            <- binary body
+ * GET  /transfer/{queueId}/pop             <- long-poll, binary body
  * </pre>
  */
 class BatonServer {
@@ -116,23 +116,33 @@ class BatonServer {
 
     void stop() { server.stop(0); }
 
-    // ── /agent/* ───────────────────────────────────────────────────────────────
+    // /agent/* 
 
     private void handleAgentRegister(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
-        // Body: "name hostname port pid"
-        String[] parts = readBody(ex).split(" ");
-        NodeId nodeId = new NodeId(parts[0], parts[1], Integer.parseInt(parts[2]), Integer.parseInt(parts[3]));
-        registry.register(nodeId);
-        sendText(ex, 200, "OK");
+        try {
+            // Body: "name hostname port pid"
+            NodeId nodeId = parseNodeId(readBody(ex));
+            registry.register(nodeId);
+            sendText(ex, 200, "OK");
+        } catch (IllegalArgumentException e) {
+            sendText(ex, 400, "Invalid agent registration: " + e.getMessage());
+        } catch (RuntimeException e) {
+            sendText(ex, 500, "Agent registration failed: " + e.getMessage());
+        }
     }
 
     private void handleAgentHeartbeat(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
-        String[] parts = readBody(ex).split(" ");
-        NodeId nodeId = new NodeId(parts[0], parts[1], Integer.parseInt(parts[2]), Integer.parseInt(parts[3]));
-        registry.heartbeat(nodeId);
-        sendText(ex, 200, "OK");
+        try {
+            NodeId nodeId = parseNodeId(readBody(ex));
+            registry.heartbeat(nodeId);
+            sendText(ex, 200, "OK");
+        } catch (IllegalArgumentException e) {
+            sendText(ex, 400, "Invalid agent heartbeat: " + e.getMessage());
+        } catch (RuntimeException e) {
+            sendText(ex, 500, "Agent heartbeat failed: " + e.getMessage());
+        }
     }
 
     private void handleJobResult(HttpExchange ex) throws IOException {
@@ -146,7 +156,7 @@ class BatonServer {
         sendText(ex, 200, "OK");
     }
 
-    // ── /agent/logs ───────────────────────────────────────────────────────────
+    // /agent/logs 
 
     private void handleLogs(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
@@ -165,7 +175,7 @@ class BatonServer {
         sendText(ex, 200, "OK");
     }
 
-    // ── /primitive/counter/* ──────────────────────────────────────────────────
+    // /primitive/counter/* 
 
     private void handleCounter(HttpExchange ex) throws IOException {
         String path   = ex.getRequestURI().getPath(); // /primitive/counter/{name}/{op}
@@ -189,7 +199,7 @@ class BatonServer {
         sendText(ex, 200, result);
     }
 
-    // ── /primitive/boolean/* ──────────────────────────────────────────────────
+    // /primitive/boolean/* 
 
     private void handleBoolean(HttpExchange ex) throws IOException {
         String path   = ex.getRequestURI().getPath();
@@ -212,7 +222,7 @@ class BatonServer {
         sendText(ex, 200, result);
     }
 
-    // ── /primitive/reference/* ────────────────────────────────────────────────
+    // /primitive/reference/* 
 
     @SuppressWarnings("unchecked")
     private void handleReference(HttpExchange ex) throws IOException {
@@ -266,7 +276,7 @@ class BatonServer {
         }
     }
 
-    // ── /barrier/* ────────────────────────────────────────────────────────────
+    // /barrier/* 
 
     private void handleBarrier(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
@@ -291,7 +301,7 @@ class BatonServer {
         }
     }
 
-    // ── /transfer/* ───────────────────────────────────────────────────────────
+    // /transfer/* 
 
     @SuppressWarnings("unchecked")
     private void handleTransfer(HttpExchange ex) throws IOException {
@@ -341,7 +351,7 @@ class BatonServer {
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     private byte[] serializeObject(Object obj) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -363,6 +373,18 @@ class BatonServer {
 
     private String readBody(HttpExchange ex) throws IOException {
         return new String(readBodyBytes(ex), StandardCharsets.UTF_8).trim();
+    }
+
+    private NodeId parseNodeId(String body) {
+        String[] parts = body.split("\\s+");
+        if (parts.length != 4) {
+            throw new IllegalArgumentException("expected 4 fields, got " + parts.length);
+        }
+        try {
+            return new NodeId(parts[0], parts[1], Integer.parseInt(parts[2]), Integer.parseInt(parts[3]));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("port and pid must be integers", e);
+        }
     }
 
     private byte[] readBodyBytes(HttpExchange ex) throws IOException {

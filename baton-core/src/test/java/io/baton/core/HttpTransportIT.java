@@ -57,7 +57,7 @@ class HttpTransportIT {
         fabric.close();
     }
 
-    // ── DistributedCounter ─────────────────────────────────────────────────────
+    // DistributedCounter 
 
     @Test
     void httpCounter_twoSidesShareState() {
@@ -92,7 +92,7 @@ class HttpTransportIT {
         assertEquals(42L, c.get());
     }
 
-    // ── DistributedBoolean ─────────────────────────────────────────────────────
+    // DistributedBoolean 
 
     @Test
     void httpBoolean_twoSidesShareState() {
@@ -117,7 +117,7 @@ class HttpTransportIT {
         assertTrue(b.get());
     }
 
-    // ── DistributedReference ───────────────────────────────────────────────────
+    // DistributedReference 
 
     @Test
     void httpReference_twoSidesShareState() {
@@ -142,7 +142,7 @@ class HttpTransportIT {
         assertEquals("new", r.get());
     }
 
-    // ── DistributedQueue ───────────────────────────────────────────────────────
+    // DistributedQueue 
 
     @Test
     void httpQueue_putAndTake() throws Exception {
@@ -173,7 +173,7 @@ class HttpTransportIT {
         assertEquals("third",  q.take());
     }
 
-    // ── DistributedBarrier ─────────────────────────────────────────────────────
+    // DistributedBarrier 
 
     @Test
     void httpBarrier_twoThreadsReleaseTogether() throws Exception {

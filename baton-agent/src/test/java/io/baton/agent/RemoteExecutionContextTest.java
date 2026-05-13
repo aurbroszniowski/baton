@@ -49,7 +49,7 @@ class RemoteExecutionContextTest {
         RemoteExecutionContext.clear();
     }
 
-    // ── Basic set / get / clear ───────────────────────────────────────────────
+    // Basic set / get / clear 
 
     @Test
     void get_returnsNullBeforeSet() {
@@ -91,7 +91,7 @@ class RemoteExecutionContextTest {
         assertEquals("job-2",  RemoteExecutionContext.jobId());
     }
 
-    // ── Thread isolation ──────────────────────────────────────────────────────
+    // Thread isolation 
 
     @Test
     void context_isNotVisibleOnOtherThreads() throws InterruptedException {
@@ -142,7 +142,7 @@ class RemoteExecutionContextTest {
                 ? "node-main-not-set" : RemoteExecutionContext.nodeId());
     }
 
-    // ── Simulate JobRunner lifecycle ──────────────────────────────────────────
+    // Simulate JobRunner lifecycle 
 
     @Test
     void simulatedJobRunner_contextSetBeforeAndClearedAfter() {
@@ -177,7 +177,7 @@ class RemoteExecutionContextTest {
         assertNull(RemoteExecutionContext.jobId(), "Context must be cleared after failed job");
     }
 
-    // ── LogRelayClient context-aware submit ───────────────────────────────────
+    // LogRelayClient context-aware submit 
 
     @Test
     void logRelayClient_contextAwareSubmit_usesCurrentJobId() throws Exception {
@@ -230,7 +230,7 @@ class RemoteExecutionContextTest {
         }
     }
 
-    // ── ProcessLogRelay.attach() ──────────────────────────────────────────────
+    // ProcessLogRelay.attach() 
 
     @Test
     void processLogRelay_attach_usesCurrentContext() throws Exception {

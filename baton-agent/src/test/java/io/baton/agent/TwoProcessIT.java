@@ -63,7 +63,7 @@ class TwoProcessIT {
         fabric.close();
     }
 
-    // ── Tests ──────────────────────────────────────────────────────────────────
+    // Tests 
 
     @Test
     void agent_registersWithOrchestrator() throws Exception {
@@ -96,7 +96,7 @@ class TwoProcessIT {
         assertTrue(stillConnected, "Agent should remain connected after heartbeat");
     }
 
-    // ── Phase 3 — remote lambda execution ─────────────────────────────────────
+    // Phase 3 — remote lambda execution 
 
     @Test
     void remoteCallable_returnsValue() throws Exception {
@@ -141,7 +141,7 @@ class TwoProcessIT {
         assertThrows(ExecutionException.class, () -> f.get(10, TimeUnit.SECONDS));
     }
 
-    // ── Phase 4 — RemoteExecutionContext ──────────────────────────────────────
+    // Phase 4 — RemoteExecutionContext 
 
     @Test
     void remoteCallable_contextIsSetDuringExecution() throws Exception {
@@ -192,7 +192,7 @@ class TwoProcessIT {
                 "nodeId '" + nodeId + "' should contain the agent name 'nodeid-agent'");
     }
 
-    // ── Phase 6 — agent cleanup on Fabric.close() ─────────────────────────────
+    // Phase 6 — agent cleanup on Fabric.close() 
 
     @Test
     void fabricClose_shutsDownConnectedAgent() throws Exception {
@@ -212,7 +212,7 @@ class TwoProcessIT {
         assertTrue(stopped, "Agent should have shut down after Fabric.close()");
     }
 
-    // ── Phase 5 — file upload / download ──────────────────────────────────────
+    // Phase 5 — file upload / download 
 
     @Test
     void fileUpload_thenDownload_contentMatches(@TempDir Path tempDir) throws Exception {
@@ -234,7 +234,7 @@ class TwoProcessIT {
         assertArrayEquals(content, Files.readAllBytes(downloaded));
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     /** Convenience: start an agent and block until it registers; fails the test on timeout. */
     private NodeId startAndAwaitAgent(String name) throws Exception {

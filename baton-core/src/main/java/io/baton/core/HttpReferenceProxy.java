@@ -85,7 +85,7 @@ public class HttpReferenceProxy<T extends Serializable> implements DistributedRe
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     private byte[] serialize(Object value) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();

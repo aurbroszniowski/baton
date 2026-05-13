@@ -123,7 +123,7 @@ class OrchestratorHttp {
         return readBytes(conn.getInputStream());
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     private static HttpURLConnection open(String url, String method) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();

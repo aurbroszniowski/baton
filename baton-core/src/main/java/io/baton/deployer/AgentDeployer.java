@@ -125,7 +125,7 @@ public class AgentDeployer {
         conn.getResponseCode();
     }
 
-    // ── Private helpers ────────────────────────────────────────────────────────
+    // Private helpers 
 
     /**
      * Returns all jars on the JVM classpath. The remote agent needs the same

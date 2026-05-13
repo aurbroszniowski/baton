@@ -116,7 +116,7 @@ public class ProcessLogRelay implements Closeable {
         stderrThread.interrupt();
     }
 
-    // ── Internals ─────────────────────────────────────────────────────────────
+    // Internals 
 
     private Thread relayThread(InputStream stream, LogRelayClient relay,
                                String jobId, String label,

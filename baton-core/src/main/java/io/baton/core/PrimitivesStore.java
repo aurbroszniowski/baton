@@ -55,7 +55,7 @@ class PrimitivesStore {
         return new LocalReference<>(atom);
     }
 
-    // ── Named inner classes (serializable so they survive lambda capture) ─────
+    // Named inner classes (serializable so they survive lambda capture) 
 
     private static final class LocalCounter implements DistributedCounter {
         private static final long serialVersionUID = 1L;

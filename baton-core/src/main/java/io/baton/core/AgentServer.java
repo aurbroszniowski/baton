@@ -33,11 +33,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * The agent's HTTP server.
  *
  * <pre>
- * POST /job          ← receives ClassBundle, dispatches to JobRunner
- * GET  /health       ← liveness probe
- * POST /shutdown     ← graceful stop
- * POST /files        ← receive uploaded files (Phase 5)
- * GET  /files/{path} ← serve files for download (Phase 5)
+ * POST /job          <- receives ClassBundle, dispatches to JobRunner
+ * GET  /health       <- liveness probe
+ * POST /shutdown     <- graceful stop
+ * POST /files        <- receive uploaded files (Phase 5)
+ * GET  /files/{path} <- serve files for download (Phase 5)
  * </pre>
  */
 public class AgentServer {
@@ -74,7 +74,7 @@ public class AgentServer {
         runner.shutdown();
     }
 
-    // ── Handlers ──────────────────────────────────────────────────────────────
+    // Handlers 
 
     private void handleJob(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
@@ -130,7 +130,7 @@ public class AgentServer {
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     private byte[] readBodyBytes(HttpExchange ex) throws IOException {
         try (InputStream in = ex.getRequestBody()) {

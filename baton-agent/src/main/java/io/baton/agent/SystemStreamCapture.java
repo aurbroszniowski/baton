@@ -56,7 +56,7 @@ public final class SystemStreamCapture {
         }
     }
 
-    // ── Internal tee stream ───────────────────────────────────────────────────
+    // Internal tee stream 
 
     static final class TeePrintStream extends PrintStream {
 

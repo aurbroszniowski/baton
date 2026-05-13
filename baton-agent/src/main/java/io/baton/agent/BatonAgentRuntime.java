@@ -47,7 +47,7 @@ public final class BatonAgentRuntime {
 
     private BatonAgentRuntime() {}
 
-    // ── Lifecycle (package-private, called by AgentMain) ──────────────────────
+    // Lifecycle (package-private, called by AgentMain) 
 
     /**
      * Install the shared relay.  Called once by {@link AgentMain} at startup.
@@ -59,7 +59,7 @@ public final class BatonAgentRuntime {
         BatonRuntime.install(relay); // LogRelayClient implements AgentLogRelay
     }
 
-    // ── Public API for framework / adapter code ───────────────────────────────
+    // Public API for framework / adapter code 
 
     /**
      * Attach a child process to the shared log relay using the current

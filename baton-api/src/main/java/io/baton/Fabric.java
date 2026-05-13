@@ -42,7 +42,7 @@ import java.util.concurrent.Future;
  */
 public interface Fabric extends AutoCloseable {
 
-    // ── Node lifecycle ──────────────────────────────────────────────────────
+    // Node lifecycle 
 
     /** Returns the {@link NodeId} of the orchestrator itself. */
     NodeId getLocalNodeId();
@@ -65,12 +65,12 @@ public interface Fabric extends AutoCloseable {
     /** Gracefully stops the agent and removes it from the registry. */
     void disconnect(NodeId node);
 
-    // ── Remote execution ────────────────────────────────────────────────────
+    // Remote execution 
 
     Future<Void>  executeAsync(NodeId node, RemoteRunnable job);
     <R> Future<R> executeAsync(NodeId node, RemoteCallable<R> job);
 
-    // ── Distributed primitives ──────────────────────────────────────────────
+    // Distributed primitives 
 
     DistributedCounter counter(String name, long initialValue);
     DistributedBoolean bool(String name, boolean initialValue);
@@ -78,7 +78,7 @@ public interface Fabric extends AutoCloseable {
     DistributedBarrier barrier(String name, int parties);
     <T extends Serializable> DistributedQueue<T> queue(String name);
 
-    // ── File transfer ───────────────────────────────────────────────────────
+    // File transfer 
 
     void upload(NodeId node, Path localPath, String remotePath);
     void download(NodeId node, String remotePath, Path localDest);

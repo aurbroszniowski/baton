@@ -36,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ClassBundleTest {
 
-    // ── ClassCollector ─────────────────────────────────────────────────────────
+    // ClassCollector 
 
     @Test
     void classCollector_capturesLambdaSyntheticClass() throws IOException {
@@ -71,7 +71,7 @@ class ClassBundleTest {
         assertTrue(bundle.lambda.length > 0);
     }
 
-    // ── BundleClassLoader ─────────────────────────────────────────────────────
+    // BundleClassLoader 
 
     @Test
     void bundleClassLoader_definesClassFromBytecode() throws Exception {
@@ -87,7 +87,7 @@ class ClassBundleTest {
         }
     }
 
-    // ── Full round-trip: ClassCollector -> ClassBundle -> BundleClassLoader -> execute ──
+    // Full round-trip: ClassCollector -> ClassBundle -> BundleClassLoader -> execute 
 
     @Test
     void roundTrip_remoteRunnable_executes() throws Exception {
@@ -144,7 +144,7 @@ class ClassBundleTest {
         assertEquals("CROSS-JVM PAYLOAD", deserialized.call());
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     private static ClassBundle buildBundle(Object job) throws IOException {
         ByteArrayOutputStream lambdaBuf = new ByteArrayOutputStream();

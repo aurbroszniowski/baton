@@ -54,7 +54,7 @@ class JulRelayHandlerTest {
         return r;
     }
 
-    // ── basic publish ──────────────────────────────────────────────────────────
+    // basic publish 
 
     @Test
     void publish_emitsMessageLine() {
@@ -87,7 +87,7 @@ class JulRelayHandlerTest {
         assertEquals("-", emitted.get(0)[1], "null logger name should become '-'");
     }
 
-    // ── level filter ──────────────────────────────────────────────────────────
+    // level filter 
 
     @Test
     void publish_belowLevel_isFiltered() {
@@ -110,7 +110,7 @@ class JulRelayHandlerTest {
         assertEquals(2, emitted.size());
     }
 
-    // ── multi-line splitting ───────────────────────────────────────────────────
+    // multi-line splitting 
 
     @Test
     void publish_multiLineMessage_splitsIntoSeparateRecords() {
@@ -133,7 +133,7 @@ class JulRelayHandlerTest {
         assertEquals("b", emitted.get(1)[3]);
     }
 
-    // ── exception handling ────────────────────────────────────────────────────
+    // exception handling 
 
     @Test
     void publish_withThrown_appendsStackTrace() {
@@ -151,7 +151,7 @@ class JulRelayHandlerTest {
         assertTrue(hasStackLine, "Stack trace lines must appear in relay output");
     }
 
-    // ── j.u.l. Logger integration ─────────────────────────────────────────────
+    // j.u.l. Logger integration 
 
     @Test
     void installedInLogger_capturesLogCalls() {
@@ -170,7 +170,7 @@ class JulRelayHandlerTest {
         assertTrue(found, "Expected 'from j.u.l.' in relayed output");
     }
 
-    // ── flush / close ─────────────────────────────────────────────────────────
+    // flush / close 
 
     @Test
     void flushAndClose_doNotThrow() {

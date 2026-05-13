@@ -50,7 +50,7 @@ class FabricTest {
         fabric.close();
     }
 
-    // ── DistributedCounter ─────────────────────────────────────────────────────
+    // DistributedCounter 
 
     @Test
     void counter_initialValue() {
@@ -101,7 +101,7 @@ class FabricTest {
         assertEquals(1L, c2.get());
     }
 
-    // ── DistributedBoolean ─────────────────────────────────────────────────────
+    // DistributedBoolean 
 
     @Test
     void bool_initialValue() {
@@ -131,7 +131,7 @@ class FabricTest {
         assertFalse(b.compareAndSet(false, true)); // already true
     }
 
-    // ── DistributedReference ───────────────────────────────────────────────────
+    // DistributedReference 
 
     @Test
     void reference_initialValue() {
@@ -155,7 +155,7 @@ class FabricTest {
         assertEquals("new", r.get());
     }
 
-    // ── DistributedQueue ───────────────────────────────────────────────────────
+    // DistributedQueue 
 
     @Test
     void queue_putAndTake() throws Exception {
@@ -181,7 +181,7 @@ class FabricTest {
         assertEquals("third", q.take());
     }
 
-    // ── DistributedBarrier ─────────────────────────────────────────────────────
+    // DistributedBarrier 
 
     @Test
     void barrier_releasesBothParties() throws Exception {
@@ -207,7 +207,7 @@ class FabricTest {
         assertThrows(Exception.class, () -> barrier.await(100, TimeUnit.MILLISECONDS));
     }
 
-    // ── executeAsync ───────────────────────────────────────────────────────────
+    // executeAsync 
 
     @Test
     void executeAsync_runnable_runsOnLocalNode() throws Exception {
@@ -244,7 +244,7 @@ class FabricTest {
         assertThrows(Exception.class, () -> f.get(5, TimeUnit.SECONDS));
     }
 
-    // ── Node lifecycle ─────────────────────────────────────────────────────────
+    // Node lifecycle 
 
     @Test
     void connectLocal_appearsInConnectedNodes() {

@@ -144,7 +144,7 @@ public class BatonFabric implements Fabric {
         return baseUrl;
     }
 
-    // ── Node lifecycle ─────────────────────────────────────────────────────────
+    // Node lifecycle 
 
     @Override
     public NodeId getLocalNodeId() { return localNodeId; }
@@ -199,7 +199,7 @@ public class BatonFabric implements Fabric {
     @Override
     public void disconnect(NodeId node) { registry.remove(node); }
 
-    // ── Remote execution ───────────────────────────────────────────────────────
+    // Remote execution 
 
     @Override
     public Future<Void> executeAsync(NodeId node, RemoteRunnable job) {
@@ -219,7 +219,7 @@ public class BatonFabric implements Fabric {
         return dispatcher.dispatchCallable(node, job);
     }
 
-    // ── Distributed primitives ─────────────────────────────────────────────────
+    // Distributed primitives 
     //
     // In local mode (baseUrl == null) return in-process implementations backed
     // by PrimitivesStore / BarrierCoordinator / QueueStore.
@@ -264,7 +264,7 @@ public class BatonFabric implements Fabric {
         return queues.getOrCreate(name);
     }
 
-    // ── File transfer ──────────────────────────────────────────────────────────
+    // File transfer 
 
     @Override
     public void upload(NodeId node, Path localPath, String remotePath) {
@@ -337,7 +337,7 @@ public class BatonFabric implements Fabric {
         }
     }
 
-    // ── Lifecycle ──────────────────────────────────────────────────────────────
+    // Lifecycle 
 
     @Override
     public void close() {
@@ -362,7 +362,7 @@ public class BatonFabric implements Fabric {
         if (server != null) server.stop();
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
+    // Helpers 
 
     private boolean isLocalNode(NodeId node) {
         // Only nodes created via connectLocal() run in the local thread pool.

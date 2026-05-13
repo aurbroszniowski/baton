@@ -64,7 +64,7 @@ public class HttpCounterProxy implements DistributedCounter {
         return doBool("/primitive/counter/" + name + "/cas?expect=" + expect + "&update=" + update);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     private long doLong(String path) {
         try {

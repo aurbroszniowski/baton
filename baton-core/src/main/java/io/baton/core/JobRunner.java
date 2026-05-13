@@ -89,7 +89,7 @@ public class JobRunner {
         pool.shutdownNow();
     }
 
-    // ── Private helpers ────────────────────────────────────────────────────────
+    // Private helpers 
 
     private Object execute(ClassBundle bundle) throws Exception {
         BundleClassLoader loader = new BundleClassLoader(bundle.classes, getClass().getClassLoader());

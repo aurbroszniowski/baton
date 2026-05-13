@@ -112,7 +112,7 @@ class JobDispatcher {
         pending.clear();
     }
 
-    // ── Private helpers ────────────────────────────────────────────────────────
+    // Private helpers 
 
     private CompletableFuture<Object> dispatch(NodeId node, Serializable job) {
         String jobId = UUID.randomUUID().toString();

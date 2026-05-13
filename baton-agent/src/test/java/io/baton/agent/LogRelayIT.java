@@ -58,7 +58,7 @@ class LogRelayIT {
         fabric.close();
     }
 
-    // ── LogRelayClient ────────────────────────────────────────────────────────
+    // LogRelayClient 
 
     @Test
     void relay_submitAndFlush_recordArrivesAtOrchestrator() throws Exception {
@@ -128,7 +128,7 @@ class LogRelayIT {
                 "Expected drops, got " + tiny.getDropCount());
     }
 
-    // ── ProcessLogRelay ───────────────────────────────────────────────────────
+    // ProcessLogRelay 
 
     @Test
     void processRelay_capturesStdoutAndStderr() throws Exception {
@@ -189,7 +189,7 @@ class LogRelayIT {
         assertEquals(0, process.exitValue(), "Process exit code should be 0");
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     /** Waits up to {@code timeoutMs} for at least {@code count} records to arrive. */
     private void waitForRecords(int count, long timeoutMs) throws InterruptedException {
@@ -203,7 +203,7 @@ class LogRelayIT {
         return ProcessHandle.current().info().command().orElse("java");
     }
 
-    // ── Helper process main class ─────────────────────────────────────────────
+    // Helper process main class 
 
     /** Prints one line to stdout and one to stderr, then exits. */
     public static class PrintAndExit {

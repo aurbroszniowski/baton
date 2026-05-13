@@ -74,7 +74,7 @@ public final class RemoteExecutionContext {
         return c != null ? c.jobId : null;
     }
 
-    // ── Internal ──────────────────────────────────────────────────────────────
+    // Internal 
 
     private static final class Context {
         final String nodeId;

@@ -57,7 +57,7 @@ public class HttpBooleanProxy implements DistributedBoolean {
         return doBool("/primitive/boolean/" + name + "/cas?expect=" + expect + "&update=" + update);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers 
 
     private boolean doBool(String path) {
         try {

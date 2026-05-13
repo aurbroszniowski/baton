@@ -34,7 +34,7 @@ class FileLogSinkTest {
         return new LogRecord("baton-agent-0@host#1", jobId, source, label, "-", line);
     }
 
-    // ── file creation ─────────────────────────────────────────────────────────
+    // file creation 
 
     @Test
     void createsLogsDirLazily(@TempDir Path root) throws IOException {
@@ -69,7 +69,7 @@ class FileLogSinkTest {
         assertTrue(Files.exists(root.resolve("logs").resolve("-.log")));
     }
 
-    // ── content ───────────────────────────────────────────────────────────────
+    // content 
 
     @Test
     void multipleLinesGoToSameFile(@TempDir Path root) throws IOException {
@@ -110,7 +110,7 @@ class FileLogSinkTest {
         assertTrue(content.contains("[-]"), "dash label must appear as [-]");
     }
 
-    // ── path traversal rejection (P1) ─────────────────────────────────────────
+    // path traversal rejection (P1) 
 
     @Test
     void logFileFor_rejectsPathTraversal(@TempDir Path root) {
@@ -152,7 +152,7 @@ class FileLogSinkTest {
                 "Full UUID must be used as filename (no truncation)");
     }
 
-    // ── logFileFor ────────────────────────────────────────────────────────────
+    // logFileFor 
 
     @Test
     void logFileFor_returnsExpectedPath(@TempDir Path root) {
@@ -160,7 +160,7 @@ class FileLogSinkTest {
         assertEquals(root.resolve("logs/abc.log"), sink.logFileFor("abc"));
     }
 
-    // ── close ─────────────────────────────────────────────────────────────────
+    // close 
 
     @Test
     void close_isIdempotent(@TempDir Path root) throws IOException {
@@ -183,7 +183,7 @@ class FileLogSinkTest {
         assertTrue(content.contains("important line"), "Content must be flushed after close()");
     }
 
-    // ── concurrent writes ─────────────────────────────────────────────────────
+    // concurrent writes 
 
     @Test
     void concurrentWrites_doNotCorruptFile(@TempDir Path root) throws Exception {

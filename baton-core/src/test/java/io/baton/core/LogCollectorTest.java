@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class LogCollectorTest {
 
-    // ── PrintingLogSink ───────────────────────────────────────────────────────
+    // PrintingLogSink 
 
     @Test
     void printingLogSink_formatsLine() {
@@ -60,7 +60,7 @@ class LogCollectorTest {
         assertEquals("[-][-][-] hello", output);
     }
 
-    // ── PrintingLogSink jobId abbreviation ────────────────────────────────────
+    // PrintingLogSink jobId abbreviation 
 
     @Test
     void printingLogSink_abbreviatesUuidForDisplay() {
@@ -98,7 +98,7 @@ class LogCollectorTest {
         assertEquals("-",   PrintingLogSink.abbreviate("-"));
     }
 
-    // ── PrintingLogSink ANSI ──────────────────────────────────────────────────
+    // PrintingLogSink ANSI 
 
     @Test
     void printingLogSink_ansi_stderrIsRed() {
@@ -181,7 +181,7 @@ class LogCollectorTest {
         assertTrue(out.contains("\u001B[31m"), "system-err output must be red after enableAnsiColour()");
     }
 
-    // ── LogCollector ──────────────────────────────────────────────────────────
+    // LogCollector 
 
     @Test
     void logCollector_dispatchesToSink() {
@@ -226,7 +226,7 @@ class LogCollectorTest {
                 collector.collect(new LogRecord("n", "j", "s", "l", "st", "line")));
     }
 
-    // ── BatonFabric /agent/logs endpoint ─────────────────────────────────────
+    // BatonFabric /agent/logs endpoint 
 
     @Test
     void agentLogs_endpointAcceptsBatch() throws Exception {

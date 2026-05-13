@@ -72,7 +72,7 @@ class SystemStreamCaptureTest {
         }
     }
 
-    // ── install() ─────────────────────────────────────────────────────────────
+    // install() 
 
     @Test
     void install_replacesSystemOut() {
@@ -99,7 +99,7 @@ class SystemStreamCaptureTest {
         assertSame(firstOut, System.out, "Second install() should not replace the stream again");
     }
 
-    // ── TeePrintStream line relay ──────────────────────────────────────────────
+    // TeePrintStream line relay 
 
     @Test
     void println_relaysLine() {

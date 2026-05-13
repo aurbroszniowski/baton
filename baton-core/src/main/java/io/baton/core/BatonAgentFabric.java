@@ -109,12 +109,22 @@ public class BatonAgentFabric implements Fabric {
             System.out.printf("[%s][%s][%s] %s%n", nodeId.toLogTag(), job, tag, line);
         });
 
-        // Register with orchestrator
-        register();
+        HeartbeatReporter startedHeartbeat = null;
+        try {
+            // Register with orchestrator
+            register();
 
-        // Start heartbeat — self-shutdown if orchestrator goes silent
-        this.heartbeat = new HeartbeatReporter(orchestratorUrl, localNodeId, agentRunId, this::close);
-        this.heartbeat.start();
+            // Start heartbeat — self-shutdown if orchestrator goes silent
+            startedHeartbeat = new HeartbeatReporter(orchestratorUrl, localNodeId, agentRunId, this::close);
+            startedHeartbeat.start();
+            this.heartbeat = startedHeartbeat;
+        } catch (IOException | RuntimeException e) {
+            if (startedHeartbeat != null) startedHeartbeat.stop();
+            agentServer.stop();
+            localPool.shutdownNow();
+            BatonRuntime.install(AgentLogRelay.NOOP);
+            throw e;
+        }
     }
 
     @Override public NodeId getLocalNodeId() { return localNodeId; }
@@ -211,7 +221,7 @@ public class BatonAgentFabric implements Fabric {
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        heartbeat.stop();
+        if (heartbeat != null) heartbeat.stop();
         agentServer.stop();
         BatonRuntime.install(AgentLogRelay.NOOP);
     }
@@ -219,6 +229,8 @@ public class BatonAgentFabric implements Fabric {
     private void register() throws IOException {
         String body = HeartbeatReporter.nodeIdToString(localNodeId);
         HttpURLConnection conn = (HttpURLConnection) new URL(orchestratorUrl + "/agent/register").openConnection();
+        conn.setConnectTimeout(10_000);
+        conn.setReadTimeout(10_000);
         conn.setDoOutput(true);
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");

@@ -72,7 +72,7 @@ public class HttpBarrierProxy implements DistributedBarrier {
         return doArrive(unit.toMillis(timeout));
     }
 
-    // ── Private ───────────────────────────────────────────────────────────────
+    // Private 
 
     private int doArrive(long timeoutMs) throws InterruptedException, TimeoutException {
         int gen = generation.get();

@@ -54,6 +54,8 @@ import java.util.UUID;
  */
 public class AgentMain {
 
+    private static final int HTTP_TIMEOUT_MS = 10_000;
+
     public static void main(String[] args) throws Exception {
         String orchestratorUrl = requireArg(args, "--orchestrator");
         int    port            = Integer.parseInt(requireArg(args, "--port"));
@@ -94,36 +96,41 @@ public class AgentMain {
             synchronized (shutdownLock) { shutdownLock.notifyAll(); }
         };
 
-        AgentServer agentServer = new AgentServer(port, runner, shutdown);
+        AgentServer agentServer = null;
+        HeartbeatReporter heartbeat = null;
+        try {
+            agentServer = new AgentServer(port, runner, shutdown);
 
-        // Register with orchestrator
-        register(orchestratorUrl, selfId);
+            // Register with orchestrator
+            register(orchestratorUrl, selfId);
 
-        // Start heartbeat — self-shutdown if orchestrator goes silent
-        HeartbeatReporter heartbeat = new HeartbeatReporter(orchestratorUrl, selfId, agentRunId, shutdown);
-        heartbeat.start();
+            // Start heartbeat — self-shutdown if orchestrator goes silent
+            heartbeat = new HeartbeatReporter(orchestratorUrl, selfId, agentRunId, shutdown);
+            heartbeat.start();
 
-        System.out.printf("[baton-agent][%s][-] Ready on port %d%n", agentRunId, agentServer.getPort());
+            System.out.printf("[baton-agent][%s][-] Ready on port %d%n", agentRunId, agentServer.getPort());
 
-        // Discover and run all RemoteInitializer implementations.  This is
-        // the generic replacement for the former Angela-specific initAngela()
-        // block.  Frameworks ship their own RemoteInitializer alongside the
-        // baton agent on the remote classpath; baton never hard-codes them.
-        Path workDir = resolveWorkDir(name);
-        runInitializers(selfId, workDir, agentRunId, ServiceLoader.load(RemoteInitializer.class));
+            // Discover and run all RemoteInitializer implementations.  This is
+            // the generic replacement for the former Angela-specific initAngela()
+            // block.  Frameworks ship their own RemoteInitializer alongside the
+            // baton agent on the remote classpath; baton never hard-codes them.
+            Path workDir = resolveWorkDir(name);
+            runInitializers(selfId, workDir, agentRunId, ServiceLoader.load(RemoteInitializer.class));
 
-        // Block until shutdown
-        synchronized (shutdownLock) {
-            shutdownLock.wait();
+            // Block until shutdown
+            synchronized (shutdownLock) {
+                shutdownLock.wait();
+            }
+
+            System.out.printf("[baton-agent][%s][-] Shutting down%n", agentRunId);
+        } finally {
+            if (heartbeat != null) heartbeat.stop();
+            if (agentServer != null) agentServer.stop();
+            logRelay.stop();
         }
-
-        System.out.printf("[baton-agent][%s][-] Shutting down%n", agentRunId);
-        heartbeat.stop();
-        agentServer.stop();
-        logRelay.stop();
     }
 
-    // ── Package-private helpers (visible to tests) ────────────────────────────
+    // Package-private helpers (visible to tests) 
 
     /**
      * Runs all {@link RemoteInitializer} implementations in {@code initializers}.
@@ -145,7 +152,7 @@ public class AgentMain {
         }
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
+    // Private helpers 
 
     private static Path resolveWorkDir(String agentName) {
         Path dir = Path.of(System.getProperty("user.home"), "baton", agentName);
@@ -156,6 +163,8 @@ public class AgentMain {
     private static void register(String orchestratorUrl, NodeId selfId) throws IOException {
         String body = HeartbeatReporter.nodeIdToString(selfId);
         HttpURLConnection conn = (HttpURLConnection) new URL(orchestratorUrl + "/agent/register").openConnection();
+        conn.setConnectTimeout(HTTP_TIMEOUT_MS);
+        conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setDoOutput(true);
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");

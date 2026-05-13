@@ -34,7 +34,7 @@ class RemoteInitializerTest {
 
     private static final NodeId AGENT_ID = new NodeId("test-agent", "localhost", 0, 0);
 
-    // ── runInitializers ───────────────────────────────────────────────────────
+    // runInitializers 
 
     @Test
     void runInitializers_callsInitializer(@TempDir Path workDir) {

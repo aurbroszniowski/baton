@@ -35,6 +35,7 @@ public class HeartbeatReporter {
 
     private static final long INTERVAL_MS  = 5_000;
     private static final int  MAX_MISSED   = 3; // 15 s of silence -> self-shutdown
+    private static final int  HTTP_TIMEOUT_MS = 10_000;
 
     private final String    orchestratorUrl;
     private final NodeId    selfId;
@@ -86,6 +87,8 @@ public class HeartbeatReporter {
 
     private void post(String url, byte[] body) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setConnectTimeout(HTTP_TIMEOUT_MS);
+        conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setDoOutput(true);
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");

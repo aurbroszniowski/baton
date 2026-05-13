@@ -53,7 +53,7 @@ public class LogRelayClient implements AgentLogRelay {
     private static final int    CONNECT_TIMEOUT   = 3_000;
     private static final int    READ_TIMEOUT      = 5_000;
 
-    // ── Internal record ───────────────────────────────────────────────────────
+    // Internal record 
 
     private static final class Entry {
         final String nodeId, jobId, source, label, stream, line;
@@ -74,7 +74,7 @@ public class LogRelayClient implements AgentLogRelay {
         }
     }
 
-    // ── State ─────────────────────────────────────────────────────────────────
+    // State 
 
     private final String                    orchestratorUrl;
     private final String                    selfNodeId;
@@ -82,7 +82,7 @@ public class LogRelayClient implements AgentLogRelay {
     private final AtomicLong                drops     = new AtomicLong();
     private final ScheduledExecutorService  scheduler;
 
-    // ── Construction / lifecycle ───────────────────────────────────────────────
+    // Construction / lifecycle 
 
     /**
      * @param orchestratorUrl base URL of the Baton orchestrator, e.g. {@code "http://host:9400"}
@@ -116,7 +116,7 @@ public class LogRelayClient implements AgentLogRelay {
         flush(); // drain anything remaining
     }
 
-    // ── Producer API ──────────────────────────────────────────────────────────
+    // Producer API 
 
     /**
      * Submit a log line for relay.  Non-blocking: if the internal queue is
@@ -160,7 +160,7 @@ public class LogRelayClient implements AgentLogRelay {
         return drops.get();
     }
 
-    // ── Flush ─────────────────────────────────────────────────────────────────
+    // Flush 
 
     private void flush() {
         if (queue.isEmpty()) return;

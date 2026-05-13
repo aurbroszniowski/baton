@@ -112,7 +112,7 @@ public class FileLogSink implements LogSink, Closeable {
         writers.clear();
     }
 
-    // ── internals ─────────────────────────────────────────────────────────────
+    // internals 
 
     private BufferedWriter openWriter(String jobId) {
         try {
