@@ -33,11 +33,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * The agent's HTTP server.
  *
  * <pre>
- * POST /job          <- receives ClassBundle, dispatches to JobRunner
- * GET  /health       <- liveness probe
- * POST /shutdown     <- graceful stop
- * POST /files        <- receive uploaded files (Phase 5)
- * GET  /files/{path} <- serve files for download (Phase 5)
+ * POST /job          - receives ClassBundle, dispatches to JobRunner
+ * GET  /health       - liveness probe
+ * POST /shutdown     - graceful stop
+ * POST /files        - receive uploaded files (Phase 5)
+ * GET  /files/{path} - serve files for download (Phase 5)
  * </pre>
  */
 public class AgentServer {
