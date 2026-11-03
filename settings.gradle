@@ -1,5 +1,6 @@
 rootProject.name = 'baton'
 
 include 'baton-api',
+        'baton-runtime',
         'baton-core',
         'baton-agent'

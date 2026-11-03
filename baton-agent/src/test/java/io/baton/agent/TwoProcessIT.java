@@ -16,6 +16,8 @@
 package io.baton.agent;
 
 import io.baton.DistributedCounter;
+import io.baton.DistributedQueue;
+import io.baton.DistributedReference;
 import io.baton.NodeId;
 import io.baton.core.BatonFabric;
 import io.baton.RemoteExecutionContext;
@@ -40,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Phase 2 + Phase 3 — two local processes communicating via HTTP.
  *
  * <p>The orchestrator runs in this JVM; the agent runs in a child process
- * started with {@link ProcessBuilder} using the same classpath.  All
+ * started with {@link ProcessBuilder} from the standalone fat JAR, without the test or orchestrator classpath.  All
  * communication is over the real HTTP server.
  *
  * <p>Phase 2 tests verify registration and heartbeat.
@@ -48,6 +50,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * the result comes back over the result-callback flow.
  */
 class TwoProcessIT {
+
+    @TempDir
+    Path agentDirectory;
 
     private BatonFabric fabric;
     private Process     agentProcess;
@@ -138,7 +143,9 @@ class TwoProcessIT {
             throw new IllegalStateException("boom from agent");
         });
 
-        assertThrows(ExecutionException.class, () -> f.get(10, TimeUnit.SECONDS));
+        ExecutionException failure = assertThrows(ExecutionException.class, () -> f.get(10, TimeUnit.SECONDS));
+        assertInstanceOf(IllegalStateException.class, failure.getCause());
+        assertEquals("boom from agent", failure.getCause().getMessage());
     }
 
     // Phase 4 — RemoteExecutionContext 
@@ -206,6 +213,10 @@ class TwoProcessIT {
         long deadline = System.currentTimeMillis() + 5_000;
         boolean stopped = false;
         while (System.currentTimeMillis() < deadline) {
+            if (agentProcess != null && !agentProcess.isAlive()) {
+                fail("Agent exited before registration: " + new String(agentProcess.getInputStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8));
+            }
             if (!isAgentReachable(healthUrl)) { stopped = true; break; }
             Thread.sleep(100);
         }
@@ -236,6 +247,48 @@ class TwoProcessIT {
 
     // Helpers 
 
+    @Test
+    void packagedAgentExecutesShippedClassesAndCapturedReferenceAndQueue() throws Exception {
+        NodeId node = startAndAwaitAgent("shipped-agent");
+        DistributedReference<String> reference = fabric.reference("reference / + % &", "initial");
+        DistributedQueue<String> queue = fabric.queue("queue / + % &");
+        ShippedValue captured = new ShippedValue("shipped");
+        Future<String> result = fabric.executeAsync(node, () -> {
+            // This class is absent from the agent JAR and must arrive in the bundle.
+            if (ClassLoader.getSystemClassLoader().getResource("io/baton/agent/TwoProcessIT.class") != null) {
+                throw new IllegalStateException("Agent inherited the test classpath");
+            }
+            reference.set(captured.value.toUpperCase());
+            queue.put(reference.get());
+            return queue.poll(2, TimeUnit.SECONDS);
+        });
+        assertEquals("SHIPPED", result.get(10, TimeUnit.SECONDS));
+        assertEquals("SHIPPED", reference.get());
+    }
+
+    @Test
+    void packagedAgentStreamsFilesAndPreservesPermissions(@TempDir Path directory) throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Files.getFileStore(directory).supportsFileAttributeView("posix"));
+        NodeId node = startAndAwaitAgent("permissions-agent");
+        Path source = directory.resolve("source.sh");
+        Files.writeString(source, "#!/bin/sh\necho hello\n");
+        java.util.Set<java.nio.file.attribute.PosixFilePermission> permissions =
+                java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-x---");
+        Files.setPosixFilePermissions(source, permissions);
+        String remote = "data://remote + % & script.sh";
+        fabric.upload(node, source, remote);
+        assertEquals(permissions, Files.getPosixFilePermissions(agentDirectory.resolve("remote + % & script.sh")));
+        Path downloaded = directory.resolve("downloaded.sh");
+        fabric.download(node, remote, downloaded);
+        assertArrayEquals(Files.readAllBytes(source), Files.readAllBytes(downloaded));
+    }
+
+    private static final class ShippedValue implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+        private final String value;
+        ShippedValue(String value) { this.value = value; }
+    }
+
     /** Convenience: start an agent and block until it registers; fails the test on timeout. */
     private NodeId startAndAwaitAgent(String name) throws Exception {
         int orchestratorPort = fabric.getOrchestratorPort();
@@ -249,14 +302,15 @@ class TwoProcessIT {
     private Process startAgent(int orchestratorPort, int agentPort, String name) throws Exception {
         String javaCmd   = ProcessHandle.current().info().command()
                 .orElseThrow(() -> new IllegalStateException("Cannot determine java command"));
-        String classpath = System.getProperty("java.class.path");
 
         ProcessBuilder pb = new ProcessBuilder(
-                javaCmd, "-cp", classpath,
-                "io.baton.agent.AgentMain",
+                javaCmd, "-Dbaton.agent.workDir=" + agentDirectory,
+                "-Dbaton.path.data=" + agentDirectory,
+                "-jar", System.getProperty("baton.test.agentJar"),
                 "--orchestrator", "http://localhost:" + orchestratorPort,
                 "--port",          String.valueOf(agentPort),
-                "--name",          name
+                "--name",          name,
+                "--hostname",      "localhost"
         );
         pb.redirectErrorStream(true); // merge stdout + stderr
         return pb.start();

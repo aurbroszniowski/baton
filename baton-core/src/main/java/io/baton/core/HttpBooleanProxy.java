@@ -16,6 +16,7 @@
 package io.baton.core;
 
 import io.baton.DistributedBoolean;
+import io.baton.transport.HttpTransport;
 
 import java.io.IOException;
 
@@ -39,29 +40,29 @@ public class HttpBooleanProxy implements DistributedBoolean {
 
     @Override
     public boolean get() {
-        return doBool("/primitive/boolean/" + name + "/get");
+        return doBool("/primitive/boolean/" + HttpTransport.encode(name) + "/get");
     }
 
     @Override
     public void set(boolean value) {
-        doPost("/primitive/boolean/" + name + "/set?value=" + value);
+        doPost("/primitive/boolean/" + HttpTransport.encode(name) + "/set?value=" + value);
     }
 
     @Override
     public boolean getAndSet(boolean value) {
-        return doBool("/primitive/boolean/" + name + "/getAndSet?value=" + value);
+        return doBool("/primitive/boolean/" + HttpTransport.encode(name) + "/getAndSet?value=" + value);
     }
 
     @Override
     public boolean compareAndSet(boolean expect, boolean update) {
-        return doBool("/primitive/boolean/" + name + "/cas?expect=" + expect + "&update=" + update);
+        return doBool("/primitive/boolean/" + HttpTransport.encode(name) + "/cas?expect=" + expect + "&update=" + update);
     }
 
     // Helpers 
 
     private boolean doBool(String path) {
         try {
-            return Boolean.parseBoolean(OrchestratorHttp.post(baseUrl + path));
+            return Boolean.parseBoolean(HttpTransport.post(baseUrl + path));
         } catch (IOException e) {
             throw new RuntimeException("Boolean HTTP call failed: " + path, e);
         }
@@ -69,7 +70,7 @@ public class HttpBooleanProxy implements DistributedBoolean {
 
     private void doPost(String path) {
         try {
-            OrchestratorHttp.post(baseUrl + path);
+            HttpTransport.post(baseUrl + path);
         } catch (IOException e) {
             throw new RuntimeException("Boolean HTTP call failed: " + path, e);
         }

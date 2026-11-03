@@ -16,6 +16,8 @@
 package io.baton.deployer;
 
 import io.baton.AgentLauncher;
+import io.baton.AgentEndpoint;
+import io.baton.DeploymentOptions;
 import io.baton.NodeId;
 import io.baton.SshConfig;
 
@@ -45,6 +47,17 @@ public class SshAgentLauncher implements AgentLauncher {
     public NodeId launch(String hostname, SshConfig ssh, String orchestratorUrl) throws Exception {
         AgentDeployer deployer = new AgentDeployer(resolveAgentJar());
         return deployer.deploy(hostname, ssh, orchestratorUrl);
+    }
+
+    @Override
+    public AgentEndpoint start(String hostname, SshConfig ssh, String orchestratorUrl) throws Exception {
+        return start(hostname, ssh, orchestratorUrl, LegacyDeploymentOptions.fromCurrentProcess());
+    }
+
+    @Override
+    public AgentEndpoint start(String hostname, SshConfig ssh, String orchestratorUrl,
+                               DeploymentOptions options) throws Exception {
+        return new AgentDeployer(resolveAgentJar()).start(hostname, ssh, orchestratorUrl, options);
     }
 
     private static Path resolveAgentJar() throws IOException {

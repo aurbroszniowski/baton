@@ -44,9 +44,9 @@ SshConfig ssh = SshConfig.of("alice", "~/.ssh/id_rsa", 2222);
 
 `AgentDeployer` handles three steps automatically:
 
-1. SCPs the fat JAR to `~/baton/agent.jar` on the remote host
-2. Starts the agent with `nohup java -jar agent.jar --orchestrator <url> --port <port>`
-3. Polls `GET /health` and returns a reachable `NodeId` (30 s timeout)
+1. SCPs the fat JAR to `<workDir>/agent.jar` and application JARs to `<workDir>/lib/` (`workDir` defaults to `~/baton`)
+2. Starts the agent with `nohup java -cp <workDir>/agent.jar:<application-jars> io.baton.agent.AgentMain --orchestrator <url> --port <port>`
+3. Polls `GET /identity` and returns the actual registered `NodeId` (30 s timeout)
 
 ```java
 import io.baton.deployer.AgentDeployer;
@@ -96,6 +96,47 @@ To use a custom agent build instead, set the system property `baton.agent.jar` t
 java -Dbaton.agent.jar=/path/to/custom-agent.jar -jar your-app.jar
 ```
 
+The normal Fabric path starts the process, then waits up to 30 seconds for its
+registration in the orchestrator. It returns that registered identity or fails;
+it never returns a placeholder PID. `AgentDeployer.start()` returns only an
+`AgentEndpoint` for code that needs to manage startup separately.
+
+Remote initializers finish before the agent registers or exposes a ready
+`/identity`. The first job dispatched after registration can therefore use the
+framework state installed by those initializers. Initializer exceptions retain
+their existing best-effort behavior: they are logged and remaining initializers
+still run. The direct `AgentDeployer.deploy()` compatibility API continues to
+poll `/identity`; registration waiting belongs to the orchestrator on the normal
+Fabric path.
+
+### Explicit application inputs
+
+Framework adapters can supply the remote classpath, JVM properties, and working
+directory instead of relying on discovery from the orchestrator process:
+
+```java
+DeploymentOptions options = new DeploymentOptions(
+    List.of(Path.of("application.jar"), Path.of("logging-adapter.jar")),
+    Map.of("application.mode", "test", "baton.path.data", "${workDir}/data"),
+    "baton/application-run"
+);
+NodeId remote = fabric.deployAndConnect("server-a.example.com", ssh, options);
+```
+
+Relative working directories are resolved under the remote user's home. Property
+values may contain `${workDir}`, expanded to the absolute remote directory.
+The agent process and remote initializers use that directory. Aliases configured
+with `baton.path.<name>` resolve paths such as `data://input.csv` in file transfers.
+Alias suffixes must be relative and stay within their configured root after
+normalization. Absolute suffixes and `..` escapes are rejected. This check is
+lexical; aliases do not form a filesystem sandbox or prevent symlink traversal.
+
+The original two-argument `deployAndConnect()` retains classpath discovery and
+Angela property propagation for compatibility. Existing `angela-root://` file
+paths also remain supported. Explicit options use only the supplied application
+JARs and properties. The agent's API, shared runtime, and transport are already
+included in its fat JAR.
+
 ---
 
 ## File transfer
@@ -114,7 +155,9 @@ fabric.download(remote, "results/output.csv", Path.of("/local/results/output.csv
 
 ## Agent log
 
-The agent process writes its output to `~/baton/agent.log` on the remote host. Check this file if an agent fails to register within the 30 s timeout.
+The agent process writes its output to `<workDir>/agent.log` on the remote host
+(`~/baton/agent.log` with default options). Check this file if an agent fails to
+register within the 30 s timeout.
 
 ---
 
@@ -122,3 +165,5 @@ The agent process writes its output to `~/baton/agent.log` on the remote host. C
 
 - `AgentDeployer` currently starts agents on a fixed remote port (`8700`).
 - SSH host key verification is currently permissive (`PromiscuousVerifier`); tighten this before production use.
+- Agent HTTP endpoints assume trusted peers. `/files` remains unauthenticated and
+  accepts ordinary absolute paths; restricting alias suffixes does not add access control.

@@ -19,17 +19,17 @@ import io.baton.ClassBundle;
 import io.baton.RemoteCallable;
 import io.baton.RemoteExecutionContext;
 import io.baton.RemoteRunnable;
+import io.baton.transport.HttpTransport;
+import io.baton.transport.Serialization;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Receives a serialized {@link ClassBundle} from the orchestrator, deserializes the
@@ -38,28 +38,45 @@ import java.util.concurrent.Executors;
  */
 public class JobRunner {
 
-    private final String orchestratorUrl;
+    private volatile String orchestratorUrl;
     private final String agentRunId;
-    private final String nodeId;
+    private volatile String nodeId;
     private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "baton-job-runner");
         t.setDaemon(true);
         return t;
     });
 
-    public JobRunner(String orchestratorUrl, String agentRunId, String nodeId) {
-        this.orchestratorUrl = orchestratorUrl;
+    public JobRunner(String agentRunId, String nodeId) {
         this.agentRunId      = agentRunId;
         this.nodeId          = nodeId;
+    }
+
+    void connect(String orchestratorUrl) { this.orchestratorUrl = orchestratorUrl; }
+
+    void setNodeId(String nodeId) { this.nodeId = nodeId; }
+
+    public Future<Void> submit(RemoteRunnable job) {
+        return submit(() -> { job.run(); return null; });
+    }
+
+    public <R> Future<R> submit(RemoteCallable<R> job) {
+        return pool.submit(() -> {
+            RemoteExecutionContext.set(nodeId, UUID.randomUUID().toString());
+            try { return job.call(); }
+            finally { RemoteExecutionContext.clear(); }
+        });
     }
 
     public void accept(byte[] payload) {
         pool.submit(() -> {
             String jobId = null;
             try {
-                ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(payload));
-                jobId = ois.readUTF();
-                ClassBundle bundle = (ClassBundle) ois.readObject();
+                ClassBundle bundle;
+                try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(payload))) {
+                    jobId = in.readUTF();
+                    bundle = (ClassBundle) in.readObject();
+                }
 
                 System.out.printf("[baton-agent][%s][%s] Running job%n", agentRunId, jobId);
                 RemoteExecutionContext.set(nodeId, jobId);
@@ -70,11 +87,11 @@ public class JobRunner {
                     RemoteExecutionContext.clear();
                 }
                 System.out.printf("[baton-agent][%s][%s] Job completed successfully%n", agentRunId, jobId);
-                postResult(jobId, serialize(result), false);
+                postResult(jobId, Serialization.write(result), false);
             } catch (Throwable t) {
                 if (jobId != null) {
                     System.out.printf("[baton-agent][%s][%s] Job failed: %s%n", agentRunId, jobId, t.getMessage());
-                    try { postResult(jobId, serialize(t), true); } catch (Exception ignored) {}
+                    try { postResult(jobId, Serialization.write(t), true); } catch (Exception ignored) {}
                 }
             }
         });
@@ -87,7 +104,8 @@ public class JobRunner {
     private Object execute(ClassBundle bundle) throws Exception {
         BundleClassLoader loader = new BundleClassLoader(bundle.classes, getClass().getClassLoader());
 
-        ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bundle.lambda)) {
+        Object job;
+        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bundle.lambda)) {
             @Override
             protected Class<?> resolveClass(ObjectStreamClass desc) throws ClassNotFoundException, IOException {
                 try {
@@ -96,9 +114,9 @@ public class JobRunner {
                     return super.resolveClass(desc);
                 }
             }
-        };
-
-        Object job = ois.readObject();
+        }) {
+            job = ois.readObject();
+        }
         if (job instanceof RemoteCallable) {
             return ((RemoteCallable<?>) job).call();
         } else if (job instanceof RemoteRunnable) {
@@ -111,19 +129,6 @@ public class JobRunner {
 
     private void postResult(String jobId, byte[] body, boolean isException) throws IOException {
         String url = orchestratorUrl + "/agent/result/" + jobId + "?exception=" + isException;
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setDoOutput(true);
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/octet-stream");
-        conn.getOutputStream().write(body);
-        conn.getResponseCode();
-    }
-
-    private byte[] serialize(Object obj) throws IOException {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        try (ObjectOutputStream oos = new ObjectOutputStream(buf)) {
-            oos.writeObject(obj);
-        }
-        return buf.toByteArray();
+        HttpTransport.post(url, body);
     }
 }

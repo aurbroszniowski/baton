@@ -17,11 +17,9 @@ package io.baton.agent;
 
 import io.baton.AgentLogRelay;
 import io.baton.RemoteExecutionContext;
+import io.baton.transport.HttpTransport;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -188,27 +186,12 @@ public class LogRelayClient implements AgentLogRelay {
         }
 
         try {
-            HttpURLConnection conn =
-                    (HttpURLConnection) new URL(orchestratorUrl + "/agent/logs").openConnection();
-            conn.setConnectTimeout(CONNECT_TIMEOUT);
-            conn.setReadTimeout(READ_TIMEOUT);
-            conn.setDoOutput(true);
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
-            conn.setRequestProperty("X-Node-Id", first.nodeId);
-            conn.setRequestProperty("X-Job-Id",  first.jobId);
-            conn.setRequestProperty("X-Source",  first.source);
-            conn.setRequestProperty("X-Label",   first.label);
-            conn.setRequestProperty("X-Stream",  first.stream);
-            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-            conn.setRequestProperty("Content-Length", Integer.toString(bytes.length));
-            try (OutputStream out = conn.getOutputStream()) {
-                out.write(bytes);
-            }
-            int code = conn.getResponseCode();
-            if (code != 200) {
-                System.err.printf("[baton-log-relay] POST /agent/logs returned HTTP %d%n", code);
-            }
+            HttpTransport.post(orchestratorUrl + "/agent/logs",
+                    body.toString().getBytes(StandardCharsets.UTF_8),
+                    Map.of("Content-Type", "text/plain; charset=utf-8",
+                            "X-Node-Id", first.nodeId, "X-Job-Id", first.jobId,
+                            "X-Source", first.source, "X-Label", first.label, "X-Stream", first.stream),
+                    CONNECT_TIMEOUT, READ_TIMEOUT);
         } catch (IOException e) {
             // Best-effort: log locally and move on — never block or throw
             System.err.printf("[baton-log-relay] Failed to relay %d log lines: %s%n",

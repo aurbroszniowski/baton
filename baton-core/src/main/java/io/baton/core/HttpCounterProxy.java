@@ -16,6 +16,7 @@
 package io.baton.core;
 
 import io.baton.DistributedCounter;
+import io.baton.transport.HttpTransport;
 
 import java.io.IOException;
 
@@ -41,34 +42,34 @@ public class HttpCounterProxy implements DistributedCounter {
 
     @Override
     public long get() {
-        return doLong("/primitive/counter/" + name + "/get");
+        return doLong("/primitive/counter/" + HttpTransport.encode(name) + "/get");
     }
 
     @Override
     public long incrementAndGet() {
-        return doLong("/primitive/counter/" + name + "/increment");
+        return doLong("/primitive/counter/" + HttpTransport.encode(name) + "/increment");
     }
 
     @Override
     public long getAndIncrement() {
-        return doLong("/primitive/counter/" + name + "/getAndIncrement");
+        return doLong("/primitive/counter/" + HttpTransport.encode(name) + "/getAndIncrement");
     }
 
     @Override
     public long getAndSet(long value) {
-        return doLong("/primitive/counter/" + name + "/getAndSet?value=" + value);
+        return doLong("/primitive/counter/" + HttpTransport.encode(name) + "/getAndSet?value=" + value);
     }
 
     @Override
     public boolean compareAndSet(long expect, long update) {
-        return doBool("/primitive/counter/" + name + "/cas?expect=" + expect + "&update=" + update);
+        return doBool("/primitive/counter/" + HttpTransport.encode(name) + "/cas?expect=" + expect + "&update=" + update);
     }
 
     // Helpers 
 
     private long doLong(String path) {
         try {
-            return Long.parseLong(OrchestratorHttp.post(baseUrl + path));
+            return Long.parseLong(HttpTransport.post(baseUrl + path));
         } catch (IOException e) {
             throw new RuntimeException("Counter HTTP call failed: " + path, e);
         }
@@ -76,7 +77,7 @@ public class HttpCounterProxy implements DistributedCounter {
 
     private boolean doBool(String path) {
         try {
-            return Boolean.parseBoolean(OrchestratorHttp.post(baseUrl + path));
+            return Boolean.parseBoolean(HttpTransport.post(baseUrl + path));
         } catch (IOException e) {
             throw new RuntimeException("Counter HTTP call failed: " + path, e);
         }

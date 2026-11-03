@@ -25,7 +25,7 @@ import java.util.ServiceLoader;
  * dependency to make {@link #create()} work.
  *
  * <pre>{@code
- * try (Fabric fabric = FabricFactory.create()) {
+ * try (Fabric fabric = FabricFactory.create(0)) {
  *     NodeId worker = fabric.deployAndConnect("host", SshConfig.of("user", "~/.ssh/id_rsa"));
  *     fabric.executeAsync(worker, () -> System.out.println("Hello from remote!")).get();
  * }
@@ -35,7 +35,7 @@ public final class FabricFactory {
 
     private FabricFactory() {}
 
-    /** Creates a {@link Fabric} whose orchestrator binds to a randomly selected free port. */
+    /** Creates a local-only {@link Fabric} with no HTTP server. */
     public static Fabric create() {
         return create(-1); // -1 = local-only, no HTTP server
     }

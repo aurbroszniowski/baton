@@ -28,7 +28,7 @@ import java.util.concurrent.Future;
  * holds the {@code Fabric} instance); agents reach it via HTTP.
  *
  * <pre>{@code
- * try (Fabric fabric = FabricFactory.create()) {
+ * try (Fabric fabric = FabricFactory.create(0)) {
  *     NodeId worker = fabric.deployAndConnect("server-a", SshConfig.of("user", "~/.ssh/id_rsa"));
  *     DistributedCounter counter = fabric.counter("jobs", 0L);
  *
@@ -56,7 +56,12 @@ public interface Fabric extends AutoCloseable {
     /** SSH into {@code hostname}, SCP the agent JAR, start the agent process, and wait for it to register. */
     NodeId deployAndConnect(String hostname, SshConfig ssh);
 
-    /** Spawn a local agent in a child process on the same machine. */
+    /** Deploy with an explicit application classpath, JVM properties, and working directory. */
+    default NodeId deployAndConnect(String hostname, SshConfig ssh, DeploymentOptions options) {
+        throw new UnsupportedOperationException("This fabric does not support explicit deployment options");
+    }
+
+    /** Create a logical worker executing in this JVM's thread pool. */
     NodeId connectLocal();
 
     /** Returns all currently connected (alive) agent nodes. */

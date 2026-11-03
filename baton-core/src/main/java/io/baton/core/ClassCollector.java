@@ -21,7 +21,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -57,7 +59,9 @@ class ClassCollector extends ObjectOutputStream {
     }
 
     void collectTransitively(Class<?> cl) {
-        if (cl == null || cl.isArray() || isBootstrap(cl) || !seen.add(cl.getName())) return;
+        if (cl == null) return;
+        if (cl.isArray()) { collectTransitively(cl.getComponentType()); return; }
+        if (isBootstrap(cl) || !seen.add(cl.getName())) return;
 
         addClassBytes(cl);
         collectTransitively(cl.getSuperclass());
@@ -67,6 +71,17 @@ class ClassCollector extends ObjectOutputStream {
         // Collect field types so that the remote JVM can link the class without CNFEs
         for (Field f : cl.getDeclaredFields()) {
             collectTransitively(f.getType());
+        }
+        // SerializedLambda resolves the capturing class through reflection. Its
+        // method signatures must link even when a different lambda is executing.
+        for (Method method : cl.getDeclaredMethods()) {
+            collectTransitively(method.getReturnType());
+            for (Class<?> type : method.getParameterTypes()) collectTransitively(type);
+            for (Class<?> type : method.getExceptionTypes()) collectTransitively(type);
+        }
+        for (Constructor<?> constructor : cl.getDeclaredConstructors()) {
+            for (Class<?> type : constructor.getParameterTypes()) collectTransitively(type);
+            for (Class<?> type : constructor.getExceptionTypes()) collectTransitively(type);
         }
     }
 

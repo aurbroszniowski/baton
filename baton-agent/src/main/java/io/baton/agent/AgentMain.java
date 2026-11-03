@@ -19,11 +19,7 @@ import io.baton.NodeId;
 import io.baton.RemoteInitializer;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.InetAddress;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ServiceLoader;
@@ -42,19 +38,17 @@ import java.util.UUID;
  * Startup sequence:
  * <ol>
  *   <li>Start {@link LogRelayClient} and tee {@code System.out/err} via
- *       {@link SystemStreamCapture} so all output is forwarded from the start.
- *   <li>Bind {@link AgentServer} on {@code --port}.
- *   <li>Register with the orchestrator ({@code POST /agent/register}).
- *   <li>Start {@link HeartbeatReporter} (every 5 s).
+ *       {@link SystemStreamCapture} so all output is forwarded from the start.</li>
+ *   <li>Bind {@link AgentServer} on {@code --port} and establish the agent identity.</li>
  *   <li>Run all {@link RemoteInitializer} implementations found by
  *       {@link ServiceLoader} so frameworks can install logging appenders and
- *       initialize static state (Angela's {@code AgentController}, etc.).
- *   <li>Block until {@code POST /shutdown} or orchestrator heartbeat timeout.
+ *       initialize static state (Angela's {@code AgentController}, etc.).</li>
+ *   <li>Call {@link AgentRuntime#start}, registering with the orchestrator, starting
+ *       heartbeats, and announcing readiness.</li>
+ *   <li>Block until {@code POST /shutdown} or orchestrator heartbeat timeout.</li>
  * </ol>
  */
 public class AgentMain {
-
-    private static final int HTTP_TIMEOUT_MS = 10_000;
 
     public static void main(String[] args) throws Exception {
         String orchestratorUrl = requireArg(args, "--orchestrator");
@@ -88,44 +82,23 @@ public class AgentMain {
             });
         }, "baton-agent-child-killer"));
 
-        JobRunner runner = new JobRunner(orchestratorUrl, agentRunId, selfId.toString());
-
-        // Shutdown trigger shared by AgentServer (HTTP /shutdown) and heartbeat miss
-        Object shutdownLock = new Object();
-        Runnable shutdown = () -> {
-            synchronized (shutdownLock) { shutdownLock.notifyAll(); }
-        };
-
-        AgentServer agentServer = null;
-        HeartbeatReporter heartbeat = null;
-        try {
-            agentServer = new AgentServer(port, runner, shutdown);
-
-            // Register with orchestrator
-            register(orchestratorUrl, selfId);
-
-            // Start heartbeat — self-shutdown if orchestrator goes silent
-            heartbeat = new HeartbeatReporter(orchestratorUrl, selfId, agentRunId, shutdown);
-            heartbeat.start();
-
-            System.out.printf("[baton-agent][%s][-] Ready on port %d%n", agentRunId, agentServer.getPort());
+        try (AgentRuntime runtime = new AgentRuntime(port, name, hostname)) {
 
             // Discover and run all RemoteInitializer implementations.  This is
             // the generic replacement for the former Angela-specific initAngela()
             // block.  Frameworks ship their own RemoteInitializer alongside the
             // baton agent on the remote classpath; baton never hard-codes them.
             Path workDir = resolveWorkDir(name);
-            runInitializers(selfId, workDir, agentRunId, ServiceLoader.load(RemoteInitializer.class));
+            runInitializers(runtime.getNodeId(), workDir, agentRunId, ServiceLoader.load(RemoteInitializer.class));
+
+            runtime.start(orchestratorUrl);
+            System.out.printf("[baton-agent][%s][-] Ready on port %d%n", agentRunId, runtime.getNodeId().getPort());
 
             // Block until shutdown
-            synchronized (shutdownLock) {
-                shutdownLock.wait();
-            }
+            runtime.awaitShutdown();
 
             System.out.printf("[baton-agent][%s][-] Shutting down%n", agentRunId);
         } finally {
-            if (heartbeat != null) heartbeat.stop();
-            if (agentServer != null) agentServer.stop();
             logRelay.stop();
         }
     }
@@ -155,24 +128,15 @@ public class AgentMain {
     // Private helpers 
 
     private static Path resolveWorkDir(String agentName) {
-        Path dir = Path.of(System.getProperty("user.home"), "baton", agentName);
-        try { Files.createDirectories(dir); } catch (IOException ignored) {}
+        Path dir = Path.of(System.getProperty("baton.agent.workDir",
+                Path.of(System.getProperty("user.home"), "baton", agentName).toString()));
+        try {
+            Files.createDirectories(dir);
+            for (String key : System.getProperties().stringPropertyNames()) {
+                if (key.startsWith("baton.path.")) Files.createDirectories(Path.of(System.getProperty(key)));
+            }
+        } catch (IOException ignored) {}
         return dir;
-    }
-
-    private static void register(String orchestratorUrl, NodeId selfId) throws IOException {
-        String body = HeartbeatReporter.nodeIdToString(selfId);
-        HttpURLConnection conn = (HttpURLConnection) new URL(orchestratorUrl + "/agent/register").openConnection();
-        conn.setConnectTimeout(HTTP_TIMEOUT_MS);
-        conn.setReadTimeout(HTTP_TIMEOUT_MS);
-        conn.setDoOutput(true);
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
-        try (OutputStream out = conn.getOutputStream()) {
-            out.write(body.getBytes(StandardCharsets.UTF_8));
-        }
-        int code = conn.getResponseCode();
-        if (code != 200) throw new IOException("Orchestrator rejected registration: HTTP " + code);
     }
 
     private static String requireArg(String[] args, String flag) {

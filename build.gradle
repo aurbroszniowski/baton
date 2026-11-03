@@ -11,6 +11,7 @@ ext {
     pomDeveloperEmail = (findProperty('pomDeveloperEmail') ?: 'contact@jsoft.biz').toString()
     moduleDescriptions = [
             'baton-api' : 'Public Baton APIs: Fabric, NodeId, distributed primitive interfaces',
+            'baton-runtime': 'Shared Baton agent runtime and JDK transport utilities',
             'baton-core': 'Baton orchestrator runtime: HTTP server, in-memory state, and dispatch',
     ]
 }

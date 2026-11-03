@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 /**
@@ -50,6 +51,8 @@ class AgentRegistry {
     private volatile Consumer<NodeId> deathListener = node -> {};
     /** Correlation prefix for log lines; set by {@link BatonFabric}. */
     private volatile String runId = "-";
+    private boolean closed;
+    private long registrationGeneration;
 
     AgentRegistry() {
         monitor.scheduleAtFixedRate(
@@ -60,37 +63,74 @@ class AgentRegistry {
     void setDeathListener(Consumer<NodeId> listener) { this.deathListener = listener; }
     void setRunId(String runId)                      { this.runId = runId; }
 
-    void register(NodeId nodeId) {
-        agents.put(nodeId, new AgentEntry(nodeId));
+    synchronized void register(NodeId nodeId) {
+        if (closed) throw new IllegalStateException("Fabric closed");
+        agents.forEach((node, entry) -> {
+            if (!node.equals(nodeId) && node.getHostname().equals(nodeId.getHostname())
+                    && node.getPort() == nodeId.getPort() && agents.remove(node, entry)) {
+                deathListener.accept(node);
+            }
+        });
+        agents.put(nodeId, new AgentEntry(nodeId, ++registrationGeneration));
+        notifyAll();
     }
 
-    void heartbeat(NodeId nodeId) {
+    boolean heartbeat(NodeId nodeId) {
         AgentEntry entry = agents.get(nodeId);
         if (entry != null) entry.lastHeartbeatMs = System.currentTimeMillis();
+        return entry != null;
     }
 
     boolean isAlive(NodeId nodeId) {
         AgentEntry entry = agents.get(nodeId);
-        return entry != null && entry.alive;
+        return entry != null;
     }
 
     Collection<NodeId> getConnectedNodes() {
-        return Collections.unmodifiableSet(agents.keySet());
+        return Collections.unmodifiableCollection(new java.util.ArrayList<>(agents.keySet()));
+    }
+
+    synchronized long registrationGeneration() { return registrationGeneration; }
+
+    synchronized NodeId awaitRegistration(String hostname, int port, long timeoutMs)
+            throws InterruptedException, TimeoutException {
+        return awaitRegistration(hostname, port, timeoutMs, 0);
+    }
+
+    synchronized NodeId awaitRegistration(String hostname, int port, long timeoutMs, long afterGeneration)
+            throws InterruptedException, TimeoutException {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        while (true) {
+            if (closed) throw new IllegalStateException("Fabric closed");
+            for (AgentEntry entry : agents.values()) {
+                NodeId node = entry.nodeId;
+                if (node.getHostname().equals(hostname) && node.getPort() == port
+                        && entry.generation > afterGeneration) return node;
+            }
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) throw new TimeoutException("Agent did not register: " + hostname + ":" + port);
+            TimeUnit.NANOSECONDS.timedWait(this, remaining);
+        }
     }
 
     void remove(NodeId nodeId) {
         agents.remove(nodeId);
     }
 
-    void shutdown() {
+    synchronized void shutdown() {
+        closed = true;
+        agents.clear();
         monitor.shutdownNow();
+        notifyAll();
     }
 
     private void checkHeartbeats() {
-        long now = System.currentTimeMillis();
+        checkHeartbeats(System.currentTimeMillis());
+    }
+
+    void checkHeartbeats(long now) {
         for (AgentEntry entry : agents.values()) {
-            if (entry.alive && (now - entry.lastHeartbeatMs) > GRACE_PERIOD_MS) {
-                entry.alive = false;
+            if ((now - entry.lastHeartbeatMs) > GRACE_PERIOD_MS && agents.remove(entry.nodeId, entry)) {
                 System.err.printf("[baton][%s][-] Agent %s missed heartbeat — marking dead%n",
                         runId, entry.nodeId);
                 deathListener.accept(entry.nodeId);
@@ -100,9 +140,12 @@ class AgentRegistry {
 
     private static class AgentEntry {
         final NodeId nodeId;
+        final long generation;
         volatile long    lastHeartbeatMs = System.currentTimeMillis();
-        volatile boolean alive           = true;
 
-        AgentEntry(NodeId nodeId) { this.nodeId = nodeId; }
+        AgentEntry(NodeId nodeId, long generation) {
+            this.nodeId = nodeId;
+            this.generation = generation;
+        }
     }
 }
