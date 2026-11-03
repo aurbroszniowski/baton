@@ -28,10 +28,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Thread-safe, in-memory store for all distributed primitive values.
  *
- * <p>In Phase 1 (in-process mode) the returned proxy objects access shared
- * state directly.  In Phase 2 (HTTP mode) agents will use HTTP-backed proxies
- * that call back to the orchestrator's {@link BatonServer}; those are
- * constructed by {@link HttpPrimitiveProxyFactory} (TODO Phase 2).
+ * Local handles and {@link BatonServer} operate on the same state. In HTTP mode,
+ * {@link BatonFabric} returns serializable proxies that call the server.
  */
 class PrimitivesStore {
 

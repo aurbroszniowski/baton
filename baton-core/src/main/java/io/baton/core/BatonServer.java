@@ -22,18 +22,19 @@ import io.baton.DistributedCounter;
 import io.baton.DistributedQueue;
 import io.baton.DistributedReference;
 import io.baton.NodeId;
+import io.baton.transport.Serialization;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -70,6 +71,7 @@ import java.util.concurrent.TimeoutException;
 class BatonServer {
 
     private final HttpServer         server;
+    private final ExecutorService executor;
     private final PrimitivesStore    primitives;
     private final BarrierCoordinator barriers;
     private final QueueStore         queues;
@@ -93,11 +95,12 @@ class BatonServer {
         port   = server.getAddress().getPort();
 
         // Use a cached-thread executor so barrier long-polls don't block other requests
-        server.setExecutor(Executors.newCachedThreadPool(r -> {
+        executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "baton-server-worker");
             t.setDaemon(true);
             return t;
-        }));
+        });
+        server.setExecutor(executor);
 
         server.createContext("/agent/register",  this::handleAgentRegister);
         server.createContext("/agent/heartbeat", this::handleAgentHeartbeat);
@@ -114,7 +117,7 @@ class BatonServer {
 
     int getPort() { return port; }
 
-    void stop() { server.stop(0); }
+    void stop() { server.stop(0); executor.shutdownNow(); }
 
     // /agent/* 
 
@@ -136,8 +139,8 @@ class BatonServer {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
         try {
             NodeId nodeId = parseNodeId(readBody(ex));
-            registry.heartbeat(nodeId);
-            sendText(ex, 200, "OK");
+            if (registry.heartbeat(nodeId)) sendText(ex, 200, "OK");
+            else sendText(ex, 404, "Agent is not registered");
         } catch (IllegalArgumentException e) {
             sendText(ex, 400, "Invalid agent heartbeat: " + e.getMessage());
         } catch (RuntimeException e) {
@@ -178,11 +181,10 @@ class BatonServer {
     // /primitive/counter/* 
 
     private void handleCounter(HttpExchange ex) throws IOException {
-        String path   = ex.getRequestURI().getPath(); // /primitive/counter/{name}/{op}
-        String[] segs = path.split("/");
+        String[] segs = ex.getRequestURI().getRawPath().split("/");
         // segs: ["", "primitive", "counter", "{name}", "{op}"]
         if (segs.length < 5) { sendStatus(ex, 400); return; }
-        String name = segs[3];
+        String name = URLDecoder.decode(segs[3], StandardCharsets.UTF_8);
         String op   = segs[4];
         long init   = queryLong(ex, "init", 0L);
         DistributedCounter c = primitives.getOrCreateCounter(name, init);
@@ -202,10 +204,9 @@ class BatonServer {
     // /primitive/boolean/* 
 
     private void handleBoolean(HttpExchange ex) throws IOException {
-        String path   = ex.getRequestURI().getPath();
-        String[] segs = path.split("/");
+        String[] segs = ex.getRequestURI().getRawPath().split("/");
         if (segs.length < 5) { sendStatus(ex, 400); return; }
-        String name = segs[3];
+        String name = URLDecoder.decode(segs[3], StandardCharsets.UTF_8);
         String op   = segs[4];
         boolean init = queryBool(ex, "init", false);
         DistributedBoolean b = primitives.getOrCreateBoolean(name, init);
@@ -226,11 +227,10 @@ class BatonServer {
 
     @SuppressWarnings("unchecked")
     private void handleReference(HttpExchange ex) throws IOException {
-        String path   = ex.getRequestURI().getPath();
-        String[] segs = path.split("/");
+        String[] segs = ex.getRequestURI().getRawPath().split("/");
         // segs: ["", "primitive", "reference", "{name}", "{op}"]
         if (segs.length < 5) { sendStatus(ex, 400); return; }
-        String name = segs[3];
+        String name = URLDecoder.decode(segs[3], StandardCharsets.UTF_8);
         String op   = segs[4];
 
         switch (op) {
@@ -246,7 +246,7 @@ class BatonServer {
             case "get": {
                 DistributedReference<Serializable> ref =
                         (DistributedReference<Serializable>) primitives.getOrCreateReference(name, (Serializable) null);
-                byte[] bytes = serializeObject(ref.get());
+                byte[] bytes = Serialization.write(ref.get());
                 sendText(ex, 200, Base64.getEncoder().encodeToString(bytes));
                 break;
             }
@@ -280,10 +280,9 @@ class BatonServer {
 
     private void handleBarrier(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
-        String path   = ex.getRequestURI().getPath(); // /barrier/{name}/arrive
-        String[] segs = path.split("/");
+        String[] segs = ex.getRequestURI().getRawPath().split("/");
         if (segs.length < 4) { sendStatus(ex, 400); return; }
-        String name       = segs[2];
+        String name       = URLDecoder.decode(segs[2], StandardCharsets.UTF_8);
         int    count      = (int) queryLong(ex, "count",      2L);
         int    generation = (int) queryLong(ex, "generation", 0L);
         long   timeoutMs  = queryLong(ex, "timeoutMs", 60_000L);
@@ -305,11 +304,10 @@ class BatonServer {
 
     @SuppressWarnings("unchecked")
     private void handleTransfer(HttpExchange ex) throws IOException {
-        String path   = ex.getRequestURI().getPath(); // /transfer/{queueId}/push|pop
-        String[] segs = path.split("/");
+        String[] segs = ex.getRequestURI().getRawPath().split("/");
         // segs: ["", "transfer", "{queueId}", "push|pop"]
         if (segs.length < 4) { sendStatus(ex, 400); return; }
-        String queueId = segs[2];
+        String queueId = URLDecoder.decode(segs[2], StandardCharsets.UTF_8);
         String op      = segs[3];
 
         @SuppressWarnings({"unchecked", "rawtypes"})
@@ -353,22 +351,9 @@ class BatonServer {
 
     // Helpers 
 
-    private byte[] serializeObject(Object obj) throws IOException {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        try (ObjectOutputStream oos = new ObjectOutputStream(buf)) {
-            oos.writeObject(obj);
-        }
-        return buf.toByteArray();
-    }
-
     private Object deserializeObject(byte[] bytes) throws IOException {
-        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
-            try {
-                return ois.readObject();
-            } catch (ClassNotFoundException e) {
-                throw new IOException("Cannot deserialize object", e);
-            }
-        }
+        try { return Serialization.read(bytes); }
+        catch (ClassNotFoundException e) { throw new IOException("Cannot deserialize object", e); }
     }
 
     private String readBody(HttpExchange ex) throws IOException {
@@ -389,11 +374,7 @@ class BatonServer {
 
     private byte[] readBodyBytes(HttpExchange ex) throws IOException {
         try (InputStream in = ex.getRequestBody()) {
-            ByteArrayOutputStream buf = new ByteArrayOutputStream();
-            byte[] block = new byte[8192];
-            int n;
-            while ((n = in.read(block)) != -1) buf.write(block, 0, n);
-            return buf.toByteArray();
+            return in.readAllBytes();
         }
     }
 

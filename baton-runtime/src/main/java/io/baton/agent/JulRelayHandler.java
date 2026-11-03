@@ -28,7 +28,7 @@ import java.util.logging.SimpleFormatter;
  * the Baton relay via {@link BatonRuntime#emit}.
  *
  * <p>No external dependencies — {@code java.util.logging} ships with the JDK.
- * This handler can therefore live in {@code baton-agent} directly as a
+ * This handler lives in {@code baton-runtime} as a
  * built-in optional for frameworks that use j.u.l.
  *
  * <p>Install it from a {@link io.baton.RemoteInitializer}:

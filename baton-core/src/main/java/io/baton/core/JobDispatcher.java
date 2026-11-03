@@ -19,20 +19,18 @@ import io.baton.ClassBundle;
 import io.baton.NodeId;
 import io.baton.RemoteCallable;
 import io.baton.RemoteRunnable;
+import io.baton.transport.HttpTransport;
+import io.baton.transport.Serialization;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.function.Predicate;
 
 /**
  * Serializes lambdas into {@link ClassBundle}s and dispatches them to remote agents via HTTP.
@@ -44,10 +42,18 @@ import java.util.concurrent.Future;
  */
 class JobDispatcher {
 
-    /** Pending futures keyed by jobId, resolved when the agent POSTs a result. */
-    private final ConcurrentHashMap<String, CompletableFuture<Object>> pending  = new ConcurrentHashMap<>();
-    /** jobIds pending per node, used to fail all futures when an agent dies. */
-    private final ConcurrentHashMap<NodeId, Set<String>>               nodeJobs = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, PendingJob> pending = new ConcurrentHashMap<>();
+    private final Predicate<NodeId> isAlive;
+    private volatile boolean closed;
+
+    JobDispatcher() { this(node -> true); }
+    JobDispatcher(Predicate<NodeId> isAlive) { this.isAlive = isAlive; }
+
+    private static final class PendingJob {
+        final NodeId node;
+        final CompletableFuture<Object> future = new CompletableFuture<>();
+        PendingJob(NodeId node) { this.node = node; }
+    }
 
     /** Correlation ID for log lines — set by {@link BatonFabric} after construction. */
     private volatile String runId = "-";
@@ -72,15 +78,14 @@ class JobDispatcher {
      * @param isException whether the agent is reporting a failure
      */
     void completeJob(String jobId, byte[] resultBytes, boolean isException) {
-        CompletableFuture<Object> future = pending.remove(jobId);
-        if (future == null) return; // already timed out or duplicate delivery
+        PendingJob job = pending.remove(jobId);
+        if (job == null) return; // already timed out or duplicate delivery
 
-        // Remove from per-node tracking (best-effort — we don't know which node here)
-        nodeJobs.values().forEach(jobs -> jobs.remove(jobId));
+        CompletableFuture<Object> future = job.future;
 
         System.out.printf("[baton][%s][%s] Job completed (exception=%b)%n", runId, jobId, isException);
         try {
-            Object result = deserialize(resultBytes);
+            Object result = Serialization.read(resultBytes);
             if (isException) {
                 future.completeExceptionally((Throwable) result);
             } else {
@@ -93,42 +98,38 @@ class JobDispatcher {
 
     /** Fail all pending jobs for a specific node — called when an agent is declared dead. */
     void failAgent(NodeId node, Throwable cause) {
-        Set<String> jobIds = nodeJobs.remove(node);
-        if (jobIds == null) return;
-        System.out.printf("[baton][%s][-] Failing %d pending job(s) for dead agent %s%n",
-                runId, jobIds.size(), node);
-        for (String jobId : jobIds) {
-            CompletableFuture<Object> future = pending.remove(jobId);
-            if (future != null) future.completeExceptionally(cause);
-        }
+        pending.forEach((id, job) -> {
+            if (job.node.equals(node) && pending.remove(id, job)) job.future.completeExceptionally(cause);
+        });
     }
 
-    /** Fail all pending jobs — used when the orchestrator shuts down. */
+    /** Fail all pending jobs and reject further submissions when the fabric closes. */
     void failAll(Throwable cause) {
-        System.out.printf("[baton][%s][-] Failing all %d pending job(s): %s%n",
-                runId, pending.size(), cause.getMessage());
-        nodeJobs.clear();
-        pending.values().forEach(f -> f.completeExceptionally(cause));
-        pending.clear();
+        closed = true;
+        pending.forEach((id, job) -> {
+            if (pending.remove(id, job)) job.future.completeExceptionally(cause);
+        });
     }
 
     // Private helpers 
 
     private CompletableFuture<Object> dispatch(NodeId node, Serializable job) {
         String jobId = UUID.randomUUID().toString();
-        CompletableFuture<Object> future = new CompletableFuture<>();
-        pending.put(jobId, future);
-        nodeJobs.computeIfAbsent(node, k -> ConcurrentHashMap.newKeySet()).add(jobId);
+        PendingJob pendingJob = new PendingJob(node);
+        CompletableFuture<Object> future = pendingJob.future;
+        pending.put(jobId, pendingJob);
+        future.whenComplete((value, failure) -> pending.remove(jobId, pendingJob));
 
         System.out.printf("[baton][%s][%s] Dispatching job to %s%n", runId, jobId, node);
         try {
+            if (closed) throw new IllegalStateException("Fabric closed");
+            if (!isAlive.test(node)) throw new AgentDeadException("Agent is not connected: " + node);
             ClassBundle bundle = buildBundle(job);
             byte[] payload = serializePayload(jobId, bundle);
             String agentUrl = "http://" + node.getHostname() + ":" + node.getPort() + "/job";
-            postBinary(agentUrl, payload);
+            HttpTransport.post(agentUrl, payload);
         } catch (Exception e) {
             pending.remove(jobId);
-            nodeJobs.getOrDefault(node, ConcurrentHashMap.newKeySet()).remove(jobId);
             future.completeExceptionally(e);
         }
 
@@ -152,19 +153,4 @@ class JobDispatcher {
         return out.toByteArray();
     }
 
-    private Object deserialize(byte[] bytes) throws IOException, ClassNotFoundException {
-        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
-            return ois.readObject();
-        }
-    }
-
-    private void postBinary(String url, byte[] data) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setDoOutput(true);
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/octet-stream");
-        conn.getOutputStream().write(data);
-        int code = conn.getResponseCode();
-        if (code != 200) throw new IOException("Agent rejected job dispatch: HTTP " + code);
-    }
 }

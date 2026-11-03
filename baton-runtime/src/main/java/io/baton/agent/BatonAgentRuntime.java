@@ -36,7 +36,7 @@ import io.baton.BatonRuntime;
  * if (relay != null) relay.awaitEof(30, TimeUnit.SECONDS);
  * }</pre>
  *
- * <p>All methods are no-ops before {@link AgentMain} calls {@link #install},
+ * <p>All methods are no-ops before {@code AgentMain} calls {@link #install},
  * making this safe to call from adapter code that may run in non-Baton
  * environments.
  */
@@ -50,7 +50,7 @@ public final class BatonAgentRuntime {
     // Lifecycle (package-private, called by AgentMain) 
 
     /**
-     * Install the shared relay.  Called once by {@link AgentMain} at startup.
+     * Install the shared relay. Called once by {@code AgentMain} at startup.
      * Also installs the relay into {@link BatonRuntime} so that
      * {@link BatonRuntime#emit} is available from any module.
      */

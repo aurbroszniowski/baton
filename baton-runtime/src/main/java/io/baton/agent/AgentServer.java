@@ -17,8 +17,10 @@ package io.baton.agent;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.baton.NodeId;
+import io.baton.transport.AgentFiles;
+import io.baton.transport.Serialization;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -27,9 +29,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.EnumSet;
-import java.util.Set;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -47,23 +47,28 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class AgentServer {
 
     private final HttpServer    server;
+    private final ExecutorService executor;
     private final JobRunner     runner;
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final Runnable      shutdownHook;
+    private volatile NodeId identity;
+    private volatile boolean acceptingJobs;
 
     public AgentServer(int port, JobRunner runner, Runnable shutdownHook) throws IOException {
         this.runner       = runner;
         this.shutdownHook = shutdownHook;
 
         server = HttpServer.create(new InetSocketAddress(port), 0);
-        server.setExecutor(Executors.newCachedThreadPool(r -> {
+        executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "baton-agent-worker");
             t.setDaemon(true);
             return t;
-        }));
+        });
+        server.setExecutor(executor);
 
         server.createContext("/job",      this::handleJob);
         server.createContext("/health",   this::handleHealth);
+        server.createContext("/identity", this::handleIdentity);
         server.createContext("/shutdown", this::handleShutdown);
         server.createContext("/files",    this::handleFiles);
 
@@ -72,21 +77,36 @@ public class AgentServer {
 
     public int getPort() { return server.getAddress().getPort(); }
 
+    void ready(NodeId nodeId) { identity = nodeId; }
+
+    void acceptJobs() { acceptingJobs = true; }
+
     public void stop() {
-        running.set(false);
-        server.stop(1);
+        if (!running.compareAndSet(true, false)) return;
+        server.stop(0);
+        executor.shutdownNow();
         runner.shutdown();
     }
 
     private void handleJob(HttpExchange ex) throws IOException {
         if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) { sendStatus(ex, 405); return; }
+        if (!acceptingJobs) { sendText(ex, 503, "Agent is initializing"); return; }
         byte[] payload = readBodyBytes(ex);
         runner.accept(payload);
         sendText(ex, 200, "accepted");
     }
 
     private void handleHealth(HttpExchange ex) throws IOException {
-        sendText(ex, 200, running.get() ? "UP" : "DRAINING");
+        sendText(ex, identity != null && running.get() ? 200 : 503, identity != null ? "UP" : "STARTING");
+    }
+
+    private void handleIdentity(HttpExchange ex) throws IOException {
+        NodeId nodeId = identity;
+        if (nodeId == null) { sendStatus(ex, 503); return; }
+        byte[] bytes = Serialization.write(nodeId);
+        ex.sendResponseHeaders(200, bytes.length);
+        try (OutputStream out = ex.getResponseBody()) { out.write(bytes); }
+        finally { ex.close(); }
     }
 
     private void handleShutdown(HttpExchange ex) throws IOException {
@@ -98,7 +118,7 @@ public class AgentServer {
     }
 
     private void handleFiles(HttpExchange ex) throws IOException {
-        String query = ex.getRequestURI().getQuery();
+        String query = ex.getRequestURI().getRawQuery();
         String remotePath = null;
         String modeParam = null;
         if (query != null) {
@@ -113,12 +133,11 @@ public class AgentServer {
         if (remotePath == null) { sendStatus(ex, 400); return; }
 
         Path path;
-        if (remotePath.startsWith("angela-root://")) {
-            String angelaRoot = System.getProperty("angela.rootDir",
-                    System.getProperty("user.home") + "/.angela");
-            path = Path.of(angelaRoot).resolve(remotePath.substring("angela-root://".length()));
-        } else {
-            path = Path.of(remotePath.replaceFirst("^~", System.getProperty("user.home")));
+        try {
+            path = AgentFiles.resolve(remotePath);
+        } catch (IllegalArgumentException e) {
+            sendText(ex, 400, e.getMessage());
+            return;
         }
 
         String method = ex.getRequestMethod().toUpperCase();
@@ -126,11 +145,11 @@ public class AgentServer {
             if (path.getParent() != null) Files.createDirectories(path.getParent());
             try (InputStream in = ex.getRequestBody();
                  OutputStream out = Files.newOutputStream(path)) {
-                pipe(in, out);
+                in.transferTo(out);
             }
             if (modeParam != null) {
                 try {
-                    Files.setPosixFilePermissions(path, intToPosix(Integer.parseInt(modeParam, 8)));
+                    Files.setPosixFilePermissions(path, AgentFiles.permissions(Integer.parseInt(modeParam, 8)));
                 } catch (UnsupportedOperationException ignored) {}
             }
             sendText(ex, 200, "ok");
@@ -140,7 +159,7 @@ public class AgentServer {
             ex.sendResponseHeaders(200, size);
             try (InputStream in = Files.newInputStream(path);
                  OutputStream out = ex.getResponseBody()) {
-                pipe(in, out);
+                in.transferTo(out);
             }
             ex.close();
         } else {
@@ -148,33 +167,9 @@ public class AgentServer {
         }
     }
 
-    private static Set<PosixFilePermission> intToPosix(int mode) {
-        Set<PosixFilePermission> perms = EnumSet.noneOf(PosixFilePermission.class);
-        if ((mode & 0400) != 0) perms.add(PosixFilePermission.OWNER_READ);
-        if ((mode & 0200) != 0) perms.add(PosixFilePermission.OWNER_WRITE);
-        if ((mode & 0100) != 0) perms.add(PosixFilePermission.OWNER_EXECUTE);
-        if ((mode & 0040) != 0) perms.add(PosixFilePermission.GROUP_READ);
-        if ((mode & 0020) != 0) perms.add(PosixFilePermission.GROUP_WRITE);
-        if ((mode & 0010) != 0) perms.add(PosixFilePermission.GROUP_EXECUTE);
-        if ((mode & 0004) != 0) perms.add(PosixFilePermission.OTHERS_READ);
-        if ((mode & 0002) != 0) perms.add(PosixFilePermission.OTHERS_WRITE);
-        if ((mode & 0001) != 0) perms.add(PosixFilePermission.OTHERS_EXECUTE);
-        return perms;
-    }
-
-    private static void pipe(InputStream in, OutputStream out) throws IOException {
-        byte[] buf = new byte[64 * 1024];
-        int n;
-        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-    }
-
     private byte[] readBodyBytes(HttpExchange ex) throws IOException {
         try (InputStream in = ex.getRequestBody()) {
-            ByteArrayOutputStream buf = new ByteArrayOutputStream();
-            byte[] block = new byte[8192];
-            int n;
-            while ((n = in.read(block)) != -1) buf.write(block, 0, n);
-            return buf.toByteArray();
+            return in.readAllBytes();
         }
     }
 

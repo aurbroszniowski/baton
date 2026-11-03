@@ -51,9 +51,9 @@ The central idea is that you write an ordinary Java lambda in your orchestrator 
 **How it works step by step:**
 
 1. **Capture**: when you call `fabric.executeAsync(node, () -> doWork())`, Baton serializes the lambda object using standard Java serialization.
-2. **Class shipping**: a lambda compiled by javac is backed by a synthetic class (e.g. `MyClass$$Lambda$42`). That class, plus any other classes the lambda directly references that are not part of the JDK, are bundled as raw bytecode into a `ClassBundle` alongside the serialized lambda bytes.
+2. **Class shipping**: Java serializes the lambda's captured state and identifies its capturing class. Baton bundles available bytecode for encountered non-JDK classes and their structural dependencies into a `ClassBundle`. Dependencies used only inside method bodies may require additional application JARs on the agent.
 3. **Transport**: the `ClassBundle` is sent to the target agent over a plain HTTP `POST /job` request.
-4. **Remote loading**: the agent creates a fresh `BundleClassLoader` backed by the received bytecode map. It deserializes the lambda using this classloader so that all synthetic and captured classes resolve correctly.
+4. **Remote loading**: the agent creates a fresh `BundleClassLoader` backed by the received bytecode map and uses it to deserialize the lambda and its captured objects.
 5. **Execution**: the agent invokes `RemoteCallable.call()` or `RemoteRunnable.run()` on the deserialized lambda.
 6. **Result**: the return value (or exception) is serialized and `POST`ed back to the orchestrator, which completes the `Future` returned to the caller.
 
@@ -92,6 +92,7 @@ In local mode (`FabricFactory.create(-1)`) all state is in-process with no HTTP 
 | Module | Artifact | Purpose |
 |---|---|---|
 | `baton-api` | `io.github.aurbroszniowski.baton:baton-api` | Public interfaces: `Fabric`, `NodeId`, distributed primitive types |
+| `baton-runtime` | `io.github.aurbroszniowski.baton:baton-runtime` | Shared agent runtime, log relay, HTTP transport, serialization, and file helpers; pulled in transitively |
 | `baton-core` | `io.github.aurbroszniowski.baton:baton-core` | Orchestrator, HTTP server, in-memory state, HTTP proxy primitives, SSH deployment |
 | `baton-agent` | *(not published)* | Standalone fat JAR embedded inside `baton-core` and deployed automatically |
 

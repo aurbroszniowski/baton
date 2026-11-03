@@ -19,11 +19,11 @@ package io.baton;
  * SPI for deploying a remote baton agent.
  *
  * <p>Implementations are discovered via {@link java.util.ServiceLoader}.  The default
- * implementation in {@code baton-deployer} uses SSH/SCP ({@code sshj}) to upload and
+ * implementation in {@code baton-core} uses SSH/SCP ({@code sshj}) to upload and
  * start the agent JAR on a remote host.
  *
  * <pre>{@code
- * // baton-deployer registers:
+ * // baton-core registers:
  * //   META-INF/services/io.baton.AgentLauncher -> io.baton.deployer.SshAgentLauncher
  * }</pre>
  */
@@ -40,4 +40,16 @@ public interface AgentLauncher {
      * @throws Exception if deployment or startup fails
      */
     NodeId launch(String hostname, SshConfig ssh, String orchestratorUrl) throws Exception;
+
+    /** Start a process; the orchestrator owns waiting for its registration. */
+    default AgentEndpoint start(String hostname, SshConfig ssh, String orchestratorUrl) throws Exception {
+        NodeId node = launch(hostname, ssh, orchestratorUrl);
+        return new AgentEndpoint(node.getHostname(), node.getPort());
+    }
+
+    /** Start with explicit deployment inputs. Implementations must opt in to this capability. */
+    default AgentEndpoint start(String hostname, SshConfig ssh, String orchestratorUrl,
+                                DeploymentOptions options) throws Exception {
+        throw new UnsupportedOperationException("This launcher does not support explicit deployment options");
+    }
 }

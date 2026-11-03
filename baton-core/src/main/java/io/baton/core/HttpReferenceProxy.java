@@ -16,12 +16,10 @@
 package io.baton.core;
 
 import io.baton.DistributedReference;
+import io.baton.transport.HttpTransport;
+import io.baton.transport.Serialization;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.Base64;
 
@@ -48,11 +46,9 @@ public class HttpReferenceProxy<T extends Serializable> implements DistributedRe
     @SuppressWarnings("unchecked")
     public T get() {
         try {
-            String b64 = OrchestratorHttp.get(baseUrl + "/primitive/reference/" + name + "/get");
+            String b64 = HttpTransport.get(baseUrl + "/primitive/reference/" + HttpTransport.encode(name) + "/get");
             byte[] bytes = Base64.getDecoder().decode(b64);
-            try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
-                return (T) ois.readObject();
-            }
+            return (T) Serialization.read(bytes);
         } catch (IOException | ClassNotFoundException e) {
             throw new RuntimeException("Reference GET failed: " + name, e);
         }
@@ -61,8 +57,8 @@ public class HttpReferenceProxy<T extends Serializable> implements DistributedRe
     @Override
     public void set(T value) {
         try {
-            OrchestratorHttp.post(baseUrl + "/primitive/reference/" + name + "/set",
-                    serialize(value));
+            HttpTransport.post(baseUrl + "/primitive/reference/" + HttpTransport.encode(name) + "/set",
+                    Serialization.write(value));
         } catch (IOException e) {
             throw new RuntimeException("Reference SET failed: " + name, e);
         }
@@ -71,27 +67,13 @@ public class HttpReferenceProxy<T extends Serializable> implements DistributedRe
     @Override
     public boolean compareAndSet(T expect, T update) {
         try {
-            // Body: ObjectOutputStream with two writeObject calls (self-delimiting)
-            ByteArrayOutputStream buf = new ByteArrayOutputStream();
-            try (ObjectOutputStream oos = new ObjectOutputStream(buf)) {
-                oos.writeObject(expect);
-                oos.writeObject(update);
-            }
-            String result = OrchestratorHttp.post(
-                    baseUrl + "/primitive/reference/" + name + "/cas", buf.toByteArray());
+            String result = HttpTransport.post(
+                    baseUrl + "/primitive/reference/" + HttpTransport.encode(name) + "/cas",
+                    Serialization.write(expect, update));
             return Boolean.parseBoolean(result);
         } catch (IOException e) {
             throw new RuntimeException("Reference CAS failed: " + name, e);
         }
     }
 
-    // Helpers 
-
-    private byte[] serialize(Object value) throws IOException {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        try (ObjectOutputStream oos = new ObjectOutputStream(buf)) {
-            oos.writeObject(value);
-        }
-        return buf.toByteArray();
-    }
 }

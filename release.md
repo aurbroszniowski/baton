@@ -21,6 +21,7 @@ Useful Sonatype references:
 | Module        | Published? | Notes                                                                 |
 |---------------|------------|-----------------------------------------------------------------------|
 | `baton-api`   | Yes        | Pure interfaces, zero deps. Pulled in transitively via `baton-core`.  |
+| `baton-runtime` | Yes      | Shared JDK-based agent runtime and transport; pulled in transitively via `baton-core`. |
 | `baton-core`  | Yes        | Orchestrator runtime. The only artifact consumers need to declare.    |
 | `baton-agent` | No         | Internal fat JAR, embedded as a classpath resource inside `baton-core`. |
 

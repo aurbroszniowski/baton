@@ -16,12 +16,12 @@
 package io.baton.core;
 
 import io.baton.DistributedBarrier;
+import io.baton.transport.HttpTransport;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -76,7 +76,7 @@ public class HttpBarrierProxy implements DistributedBarrier {
 
     private int doArrive(long timeoutMs) throws InterruptedException, TimeoutException {
         int gen = generation.get();
-        String url = baseUrl + "/barrier/" + name + "/arrive"
+        String url = baseUrl + "/barrier/" + HttpTransport.encode(name) + "/arrive"
                 + "?count=" + parties
                 + "&generation=" + gen
                 + "&timeoutMs=" + timeoutMs;
@@ -86,28 +86,33 @@ public class HttpBarrierProxy implements DistributedBarrier {
             // the client read-timeout slightly longer so we see the HTTP 408
             // response rather than a socket timeout.
             int readTimeout = (int) Math.min(timeoutMs + 10_000L, Integer.MAX_VALUE);
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("POST");
-            conn.setDoOutput(true);
-            conn.setReadTimeout(readTimeout);
-            conn.getOutputStream().close();
+            HttpURLConnection conn = HttpTransport.open(url, "POST", readTimeout);
+            try {
+                conn.setDoOutput(true);
+                conn.getOutputStream().close();
 
-            int code = conn.getResponseCode();
-            if (code == 408) {
-                String detail = "";
-                try {
-                    InputStream err = conn.getErrorStream();
-                    if (err != null) detail = new String(err.readAllBytes(), StandardCharsets.UTF_8).trim();
-                } catch (IOException ignored) {}
-                throw new TimeoutException(detail.isEmpty() ? "Barrier await timed out: " + name : detail);
+                int code = conn.getResponseCode();
+                if (code == 408) {
+                    String detail = "";
+                    try {
+                        InputStream err = conn.getErrorStream();
+                        if (err != null) detail = new String(err.readAllBytes(), StandardCharsets.UTF_8).trim();
+                    } catch (IOException ignored) {}
+                    throw new TimeoutException(detail.isEmpty() ? "Barrier await timed out: " + name : detail);
+                }
+                if (code != 200) throw new IOException("HTTP " + code + " from barrier: " + name);
+
+                String body;
+                try (InputStream in = conn.getInputStream()) {
+                    body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                }
+                int index = parseField(body, "index");
+                // Advance generation: only one thread wins the CAS, others are no-ops
+                generation.compareAndSet(gen, gen + 1);
+                return index;
+            } finally {
+                conn.disconnect();
             }
-            if (code != 200) throw new IOException("HTTP " + code + " from barrier: " + name);
-
-            String body = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            int index = parseField(body, "index");
-            // Advance generation: only one thread wins the CAS, others are no-ops
-            generation.compareAndSet(gen, gen + 1);
-            return index;
         } catch (SocketTimeoutException e) {
             throw new TimeoutException("Barrier await timed out (socket): " + name);
         } catch (IOException e) {

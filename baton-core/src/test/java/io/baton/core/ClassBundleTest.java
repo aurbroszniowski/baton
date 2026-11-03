@@ -18,6 +18,7 @@ package io.baton.core;
 import io.baton.ClassBundle;
 import io.baton.RemoteCallable;
 import io.baton.RemoteRunnable;
+import io.baton.agent.BundleClassLoader;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;

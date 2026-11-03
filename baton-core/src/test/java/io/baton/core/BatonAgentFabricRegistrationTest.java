@@ -15,15 +15,19 @@
  */
 package io.baton.core;
 
+import com.sun.net.httpserver.HttpServer;
+import io.baton.AgentLogRelay;
+import io.baton.BatonRuntime;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.net.HttpURLConnection;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.net.InetSocketAddress;
 import java.net.URL;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,30 +38,32 @@ class BatonAgentFabricRegistrationTest {
 
     @Test
     void registrationFailureStopsStartedAgentServer() throws Exception {
-        ServerSocket serverSocket = new ServerSocket(0);
-        int orchestratorPort = serverSocket.getLocalPort();
-        int agentPort = freePort();
-        CountDownLatch accepted = new CountDownLatch(1);
-
-        Thread closingServer = new Thread(() -> {
-            try (ServerSocket ignoredServer = serverSocket;
-                 Socket ignored = ignoredServer.accept()) {
-                accepted.countDown();
-            } catch (IOException ignored) {
-                accepted.countDown();
+        AtomicInteger agentPort = new AtomicInteger();
+        HttpServer orchestrator = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        orchestrator.createContext("/agent/register", exchange -> {
+            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            agentPort.set(Integer.parseInt(body.split(" ")[2]));
+            exchange.close(); // Drop the registration response to simulate transport failure.
+        });
+        orchestrator.start();
+        try {
+            assertThrows(IOException.class, () -> new BatonAgentFabric("http://localhost:"
+                    + orchestrator.getAddress().getPort(), 0, "failing-agent"));
+            assertTrue(agentPort.get() > 0, "registration attempt should reach the orchestrator");
+            assertFalse(isAgentReachable(agentPort.get()), "agent server must be stopped after registration failure");
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            PrintStream original = System.out;
+            try (PrintStream captured = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+                System.setOut(captured);
+                BatonRuntime.emit("framework", "startup", "-", "log after failed startup");
+            } finally {
+                System.setOut(original);
             }
-        }, "closing-registration-server");
-        closingServer.start();
-
-        assertThrows(IOException.class, () ->
-                new BatonAgentFabric("http://localhost:" + orchestratorPort, agentPort, "failing-agent"));
-        assertTrue(accepted.await(5, TimeUnit.SECONDS), "registration attempt should reach the orchestrator");
-
-        long deadline = System.currentTimeMillis() + 5_000;
-        while (System.currentTimeMillis() < deadline && isAgentReachable(agentPort)) {
-            Thread.sleep(100);
+            assertEquals("", output.toString(StandardCharsets.UTF_8), "Failed startup must reset the relay to NOOP");
+        } finally {
+            BatonRuntime.install(AgentLogRelay.NOOP);
+            orchestrator.stop(0);
         }
-        assertFalse(isAgentReachable(agentPort), "agent server must be stopped after registration failure");
     }
 
     @Test
@@ -97,9 +103,4 @@ class BatonAgentFabricRegistrationTest {
         }
     }
 
-    private static int freePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
-    }
 }

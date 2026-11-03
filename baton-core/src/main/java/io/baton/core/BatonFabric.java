@@ -15,7 +15,9 @@
  */
 package io.baton.core;
 
+import io.baton.AgentEndpoint;
 import io.baton.AgentLauncher;
+import io.baton.DeploymentOptions;
 import io.baton.DistributedBarrier;
 import io.baton.DistributedBoolean;
 import io.baton.DistributedCounter;
@@ -26,20 +28,21 @@ import io.baton.NodeId;
 import io.baton.RemoteCallable;
 import io.baton.RemoteRunnable;
 import io.baton.SshConfig;
+import io.baton.transport.AgentFiles;
+import io.baton.transport.HttpTransport;
 
-import java.io.IOException;
 import java.io.File;
+import java.io.IOException;
 import java.io.Serializable;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
-import java.net.URLEncoder;
 import java.net.UnknownHostException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -54,12 +57,7 @@ import java.util.stream.Stream;
 /**
  * Main {@link Fabric} implementation.
  *
- * <p><b>Phase 1 (current):</b> all jobs execute in local threads — no network needed.
- * Distributed primitives are backed by in-process {@link PrimitivesStore}.
- * Use {@code connectLocal()} to add more "nodes" (they share the same JVM).
- *
- * <p><b>Phase 2 (TODO):</b> {@link BatonServer} routes are wired up; agents
- * run in child processes and communicate via HTTP.
+ * Owns orchestrator state, remote agent lifecycle, and optional in-process workers.
  */
 public class BatonFabric implements Fabric {
 
@@ -70,7 +68,7 @@ public class BatonFabric implements Fabric {
     private final BarrierCoordinator barriers    = new BarrierCoordinator();
     private final QueueStore         queues      = new QueueStore();
     private final AgentRegistry      registry    = new AgentRegistry();
-    private final JobDispatcher      dispatcher  = new JobDispatcher();
+    private final JobDispatcher      dispatcher  = new JobDispatcher(registry::isAlive);
     private final LogCollector       logCollector = new LogCollector(new PrintingLogSink(System.out));
     private final ExecutorService    localPool   = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "baton-local-worker");
@@ -91,7 +89,7 @@ public class BatonFabric implements Fabric {
         dispatcher.setRunId(runId);
         registry.setRunId(runId);
         registry.setDeathListener(node -> dispatcher.failAgent(node,
-                new AgentDeadException("Agent " + node + " missed heartbeat")));
+                new AgentDeadException("Agent is no longer connected: " + node)));
         BatonServer s   = null;
         String      url = null;
         if (orchestratorPort >= 0) { // -1 = local-only mode, no HTTP server
@@ -99,7 +97,9 @@ public class BatonFabric implements Fabric {
                 s   = new BatonServer(primitives, barriers, queues, registry, dispatcher, logCollector, orchestratorPort);
                 url = "http://" + resolveOrchestratorHost() + ":" + s.getPort();
             } catch (IOException e) {
-                System.err.printf("[baton][%s][-] WARNING: could not start HTTP server — %s%n", runId, e.getMessage());
+                localPool.shutdownNow();
+                registry.shutdown();
+                throw new IllegalStateException("Could not start orchestrator HTTP server", e);
             }
         }
         this.server  = s;
@@ -151,32 +151,31 @@ public class BatonFabric implements Fabric {
 
     @Override
     public NodeId deployAndConnect(String hostname, SshConfig ssh) {
+        return deploy(hostname, ssh, null);
+    }
+
+    @Override
+    public NodeId deployAndConnect(String hostname, SshConfig ssh, DeploymentOptions options) {
+        return deploy(hostname, ssh, java.util.Objects.requireNonNull(options, "options"));
+    }
+
+    private NodeId deploy(String hostname, SshConfig ssh, DeploymentOptions options) {
+        if (closed.get()) throw new IllegalStateException("Fabric closed");
         if (baseUrl == null) {
             throw new IllegalStateException("Fabric must be started with a port to support deployAndConnect");
         }
         AgentLauncher launcher = ServiceLoader.load(AgentLauncher.class)
                 .findFirst()
                 .orElseThrow(() -> new UnsupportedOperationException(
-                        "No AgentLauncher found on classpath — add baton-deployer as a dependency"));
+                        "No AgentLauncher found on classpath — add baton-core as a dependency"));
         try {
-            NodeId provisional = launcher.launch(hostname, ssh, baseUrl);
-            // The deployer may return a NodeId with pid=-1 (placeholder). Look up the
-            // actual registered NodeId (with real PID) so that jobId->node tracking in
-            // JobDispatcher and failAgent() lookup stay consistent.
-            long deadline = System.currentTimeMillis() + 5_000;
-            while (System.currentTimeMillis() < deadline) {
-                for (NodeId n : registry.getConnectedNodes()) {
-                    if (n.getHostname().equals(provisional.getHostname())
-                            && n.getPort() == provisional.getPort()) {
-                        return n;
-                    }
-                }
-                try { Thread.sleep(100); } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-            return provisional; // fallback — agent may not have registered yet
+            long previousGeneration = registry.registrationGeneration();
+            AgentEndpoint endpoint = options == null ? launcher.start(hostname, ssh, baseUrl)
+                    : launcher.start(hostname, ssh, baseUrl, options);
+            return registry.awaitRegistration(endpoint.getHostname(), endpoint.getPort(), 30_000, previousGeneration);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for agent registration", e);
         } catch (UnsupportedOperationException e) {
             throw e;
         } catch (Exception e) {
@@ -186,33 +185,52 @@ public class BatonFabric implements Fabric {
 
     @Override
     public NodeId connectLocal() {
+        if (closed.get()) throw new IllegalStateException("Fabric closed");
         // Spawn a local "node" in the same JVM (useful for unit tests)
         NodeId node = new NodeId("local-" + System.nanoTime(), localNodeId.getHostname(), 0, (int) ProcessHandle.current().pid());
         localNodes.add(node); // track separately so remote agents aren't treated as local
-        registry.register(node);
         return node;
     }
 
     @Override
-    public Collection<NodeId> getConnectedNodes() { return registry.getConnectedNodes(); }
+    public Collection<NodeId> getConnectedNodes() {
+        Collection<NodeId> nodes = new ArrayList<>(localNodes);
+        nodes.addAll(registry.getConnectedNodes());
+        return Collections.unmodifiableCollection(nodes);
+    }
 
     @Override
-    public void disconnect(NodeId node) { registry.remove(node); }
+    public void disconnect(NodeId node) {
+        disconnect(node, HttpTransport.DEFAULT_TIMEOUT_MS);
+    }
+
+    private void disconnect(NodeId node, int timeoutMs) {
+        if (localNodes.remove(node)) return;
+        try {
+            if (timeoutMs > 0) HttpTransport.post("http://" + node.getHostname() + ":" + node.getPort() + "/shutdown",
+                    new byte[0], "application/octet-stream", timeoutMs);
+        } catch (IOException ignored) {
+            // An unreachable agent still needs to be removed and its jobs failed.
+        } finally {
+            registry.remove(node);
+            dispatcher.failAgent(node, new AgentDeadException("Agent disconnected: " + node));
+        }
+    }
 
     // Remote execution 
 
     @Override
     public Future<Void> executeAsync(NodeId node, RemoteRunnable job) {
+        if (closed.get()) return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("Fabric closed"));
         if (isLocalNode(node)) {
-            // Phase 1: run in a local thread
             return localPool.submit(() -> { job.run(); return null; });
         }
-        // Phase 2: HTTP dispatch
         return dispatcher.dispatchRunnable(node, job);
     }
 
     @Override
     public <R> Future<R> executeAsync(NodeId node, RemoteCallable<R> job) {
+        if (closed.get()) return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("Fabric closed"));
         if (isLocalNode(node)) {
             return localPool.submit(job::call);
         }
@@ -232,30 +250,26 @@ public class BatonFabric implements Fabric {
 
     @Override
     public DistributedCounter counter(String name, long initialValue) {
-        primitives.getOrCreateCounter(name, initialValue); // ensure server-side entry exists
-        if (baseUrl != null) return new HttpCounterProxy(baseUrl, name);
-        return primitives.getOrCreateCounter(name, initialValue);
+        DistributedCounter counter = primitives.getOrCreateCounter(name, initialValue);
+        return baseUrl == null ? counter : new HttpCounterProxy(baseUrl, name);
     }
 
     @Override
     public DistributedBoolean bool(String name, boolean initialValue) {
-        primitives.getOrCreateBoolean(name, initialValue);
-        if (baseUrl != null) return new HttpBooleanProxy(baseUrl, name);
-        return primitives.getOrCreateBoolean(name, initialValue);
+        DistributedBoolean flag = primitives.getOrCreateBoolean(name, initialValue);
+        return baseUrl == null ? flag : new HttpBooleanProxy(baseUrl, name);
     }
 
     @Override
     public <T extends Serializable> DistributedReference<T> reference(String name, T initialValue) {
-        primitives.getOrCreateReference(name, initialValue);
-        if (baseUrl != null) return new HttpReferenceProxy<>(baseUrl, name);
-        return primitives.getOrCreateReference(name, initialValue);
+        DistributedReference<T> reference = primitives.getOrCreateReference(name, initialValue);
+        return baseUrl == null ? reference : new HttpReferenceProxy<>(baseUrl, name);
     }
 
     @Override
     public DistributedBarrier barrier(String name, int parties) {
-        barriers.getOrCreate(name, parties); // ensure server-side barrier is registered
-        if (baseUrl != null) return new HttpBarrierProxy(baseUrl, name, parties);
-        return barriers.getOrCreate(name, parties);
+        DistributedBarrier barrier = barriers.getOrCreate(name, parties);
+        return baseUrl == null ? barrier : new HttpBarrierProxy(baseUrl, name, parties);
     }
 
     @Override
@@ -281,17 +295,7 @@ public class BatonFabric implements Fabric {
         }
         if (isLocalNode(node)) {
             try {
-                String expanded = remotePath;
-                if (expanded.startsWith("angela-root://")) {
-                    String angelaRoot = System.getProperty("angela.rootDir",
-                            System.getProperty("user.home") + "/.angela");
-                    expanded = angelaRoot + "/" + expanded.substring("angela-root://".length());
-                } else {
-                    expanded = expanded.replaceFirst("^~(/|$)", System.getProperty("user.home") + "/");
-                }
-                Path target = Path.of(expanded);
-                if (target.getParent() != null) Files.createDirectories(target.getParent());
-                Files.copy(localPath, target, StandardCopyOption.REPLACE_EXISTING);
+                AgentFiles.copy(localPath, AgentFiles.resolve(remotePath));
             } catch (IOException e) {
                 throw new RuntimeException("Local upload failed: " + e.getMessage(), e);
             }
@@ -299,8 +303,8 @@ public class BatonFabric implements Fabric {
         }
         try {
             String url = "http://" + node.getHostname() + ":" + node.getPort()
-                    + "/files?path=" + URLEncoder.encode(remotePath, StandardCharsets.UTF_8.name());
-            OrchestratorHttp.postFile(url, localPath);
+                    + "/files?path=" + HttpTransport.encode(remotePath);
+            HttpTransport.postFile(url, localPath);
         } catch (IOException e) {
             throw new RuntimeException("Upload to " + node + " failed: " + e.getMessage(), e);
         }
@@ -310,17 +314,7 @@ public class BatonFabric implements Fabric {
     public void download(NodeId node, String remotePath, Path localDest) {
         if (isLocalNode(node)) {
             try {
-                String expanded = remotePath;
-                if (expanded.startsWith("angela-root://")) {
-                    String angelaRoot = System.getProperty("angela.rootDir",
-                            System.getProperty("user.home") + "/.angela");
-                    expanded = angelaRoot + "/" + expanded.substring("angela-root://".length());
-                } else {
-                    expanded = expanded.replaceFirst("^~(/|$)", System.getProperty("user.home") + "/");
-                }
-                Path source = Path.of(expanded);
-                if (localDest.getParent() != null) Files.createDirectories(localDest.getParent());
-                Files.copy(source, localDest, StandardCopyOption.REPLACE_EXISTING);
+                AgentFiles.copy(AgentFiles.resolve(remotePath), localDest);
             } catch (IOException e) {
                 throw new RuntimeException("Local download failed: " + e.getMessage(), e);
             }
@@ -328,10 +322,8 @@ public class BatonFabric implements Fabric {
         }
         try {
             String url = "http://" + node.getHostname() + ":" + node.getPort()
-                    + "/files?path=" + URLEncoder.encode(remotePath, StandardCharsets.UTF_8.name());
-            byte[] bytes = OrchestratorHttp.getBytes(url, 30_000);
-            if (localDest.getParent() != null) Files.createDirectories(localDest.getParent());
-            Files.write(localDest, bytes);
+                    + "/files?path=" + HttpTransport.encode(remotePath);
+            HttpTransport.download(url, localDest);
         } catch (IOException e) {
             throw new RuntimeException("Download from " + node + " failed: " + e.getMessage(), e);
         }
@@ -342,23 +334,19 @@ public class BatonFabric implements Fabric {
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) return; // idempotent
+        dispatcher.failAll(new IllegalStateException("Fabric closed"));
 
         // Gracefully shut down connected remote agents before stopping the local server
         System.out.printf("[baton][%s][-] Closing fabric — shutting down remote agents%n", runId);
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
         for (NodeId node : registry.getConnectedNodes()) {
-            if (!localNodes.contains(node) && !node.equals(localNodeId)) {
-                try {
-                    OrchestratorHttp.post(
-                            "http://" + node.getHostname() + ":" + node.getPort() + "/shutdown");
-                } catch (IOException ignored) {
-                    // Agent may already be gone — that is fine
-                }
-            }
+            int remaining = (int) Math.max(0, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
+            disconnect(node, Math.min(500, remaining));
         }
 
+        localNodes.clear();
         localPool.shutdownNow();
         registry.shutdown();
-        dispatcher.failAll(new IllegalStateException("Fabric closed"));
         if (server != null) server.stop();
     }
 

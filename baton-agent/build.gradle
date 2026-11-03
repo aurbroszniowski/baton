@@ -1,5 +1,5 @@
 dependencies {
-    implementation project(':baton-api')
+    implementation project(':baton-runtime')
     testImplementation project(':baton-api')
     testImplementation project(':baton-core')
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
@@ -18,4 +18,9 @@ jar {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+test {
+    dependsOn jar
+    systemProperty 'baton.test.agentJar', tasks.named('jar').get().archiveFile.get().asFile.absolutePath
 }

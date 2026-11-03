@@ -16,11 +16,9 @@
 package io.baton.agent;
 
 import io.baton.NodeId;
+import io.baton.transport.HttpTransport;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -86,15 +84,6 @@ public class HeartbeatReporter {
     }
 
     private void post(String url, byte[] body) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setConnectTimeout(HTTP_TIMEOUT_MS);
-        conn.setReadTimeout(HTTP_TIMEOUT_MS);
-        conn.setDoOutput(true);
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
-        try (OutputStream out = conn.getOutputStream()) {
-            out.write(body);
-        }
-        conn.getResponseCode();
+        HttpTransport.post(url, body, "text/plain; charset=utf-8", HTTP_TIMEOUT_MS);
     }
 }

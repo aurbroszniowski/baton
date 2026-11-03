@@ -50,8 +50,7 @@ class AgentMainRegistrationFailureTest {
 
         Process process = new ProcessBuilder(
                 javaCommand(),
-                "-cp", System.getProperty("java.class.path"),
-                "io.baton.agent.AgentMain",
+                "-jar", System.getProperty("baton.test.agentJar"),
                 "--orchestrator", "http://localhost:" + orchestratorPort,
                 "--port", String.valueOf(agentPort),
                 "--name", "failing-agent",
